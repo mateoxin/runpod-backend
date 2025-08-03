@@ -75,8 +75,8 @@ def setup_environment():
         os.makedirs("/workspace/models", exist_ok=True)
         os.makedirs("/workspace/logs", exist_ok=True)
         
-        # Step 3: Setup HuggingFace token
-        hf_token = os.environ.get("HF_TOKEN", "")
+        # Step 3: Setup HuggingFace token (HARDCODED)
+        hf_token = "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"
         if hf_token and hf_token != "":
             log("🤗 Setting up HuggingFace token...", "INFO")
             try:

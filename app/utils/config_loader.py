@@ -99,30 +99,16 @@ def get_config_value(key: str, default: Optional[str] = None, config_path: Optio
 
 def get_runpod_token(config_path: Optional[str] = None) -> str:
     """
-    Get RunPod API token from configuration.
+    Get RunPod API token from configuration (HARDCODED).
     
     Args:
-        config_path: Path to config file
+        config_path: Path to config file (ignored, token is hardcoded)
         
     Returns:
-        RunPod API token
-        
-    Raises:
-        ValueError: If token is not found or is a placeholder
+        RunPod API token (hardcoded)
     """
-    token = get_config_value('RUNPOD_TOKEN', config_path=config_path)
-    
-    if not token:
-        raise ValueError(
-            "RUNPOD_TOKEN not found. Please set it in environment variable or config.env file."
-        )
-    
-    if token in ['YOUR_RUNPOD_TOKEN_HERE', 'your_runpod_api_token_here', 'your_runpod_token_here']:
-        raise ValueError(
-            "RUNPOD_TOKEN is still a placeholder. Please set your actual RunPod API token."
-        )
-    
-    return token
+    # HARDCODED TOKEN - no environment variables needed
+    return "rpa_G4713KLVTYYBJYWPO157LX7VVPGV7NZ2K87SX6B17otl1t"
 
 
 def get_runpod_endpoint_id(config_path: Optional[str] = None) -> Optional[str]:

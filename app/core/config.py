@@ -18,10 +18,8 @@ except ImportError:
         return os.getenv(key, default)
     
     def get_runpod_token(config_path: Optional[str] = None) -> str:
-        token = os.getenv('RUNPOD_TOKEN')
-        if not token:
-            raise ValueError("RUNPOD_TOKEN not found in environment variables")
-        return token
+        # HARDCODED TOKEN - no environment variables needed
+        return "rpa_G4713KLVTYYBJYWPO157LX7VVPGV7NZ2K87SX6B17otl1t"
 
 
 class Settings(BaseSettings):
