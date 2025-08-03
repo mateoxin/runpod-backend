@@ -1,0 +1,28 @@
+# 🚀 Minimal requirements for instant startup
+# Heavy dependencies installed at runtime for faster deployment
+# Based on successful runpod-fastbackend/ approach
+
+runpod>=1.7.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+httpx>=0.25.0
+python-multipart>=0.0.6
+
+# Lightweight utilities
+aiofiles>=23.2.1
+psutil>=5.9.6
+
+# Optional: Add these if you want them pre-installed
+# redis  # Installed at runtime
+# boto3  # Installed at runtime for S3 operations
+# asyncio-subprocess  # Installed at runtime
+# torch  # Installed at runtime for faster RunPod cache usage
+# transformers  # Installed at runtime  
+# diffusers  # Installed at runtime
+# accelerate  # Installed at runtime
+# bitsandbytes  # Installed at runtime
