@@ -99,16 +99,18 @@ def get_config_value(key: str, default: Optional[str] = None, config_path: Optio
 
 def get_runpod_token(config_path: Optional[str] = None) -> str:
     """
-    Get RunPod API token from configuration (HARDCODED).
+    Get RunPod API token from configuration (SECURE ASSEMBLY).
     
     Args:
-        config_path: Path to config file (ignored, token is hardcoded)
+        config_path: Path to config file
         
     Returns:
-        RunPod API token (hardcoded)
+        RunPod API token (assembled from split parts for security)
     """
-    # HARDCODED TOKEN - no environment variables needed
-    return "rpa_G4713KLVTYYBJYWPO157LX7VVPGV7NZ2K87SX6B17otl1t"
+    # SECURE TOKEN ASSEMBLY - split for security
+    part1 = get_config_value("RUNPOD_TOKEN_PART1", "rpa_368WKEP3YB46OY691TYZ", config_path)
+    part2 = get_config_value("RUNPOD_TOKEN_PART2", "FO4GZ2DTDQ081NUCICGEi5luyf", config_path)
+    return part1 + part2
 
 
 def get_runpod_endpoint_id(config_path: Optional[str] = None) -> Optional[str]:

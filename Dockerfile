@@ -31,4 +31,4 @@ ENV WORKSPACE_PATH=/workspace
 ENV PYTHONPATH=/app
 
 # Command to run the handler
-CMD ["python", "-u", "/app/rp_handler.py"] 
+CMD ["python", "-u", "/app/app/rp_handler.py"] 

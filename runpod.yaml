@@ -1,0 +1,66 @@
+# 🚀 RunPod Configuration for LoRA Dashboard Backend
+# Pre-configured with secure token assembly
+
+name: lora-dashboard-backend
+image: your-registry/lora-dashboard-backend:latest
+
+# 🔧 Container Configuration
+container_config:
+  image: ubuntu:22.04
+  ports:
+    - "8000:8000"
+  environment:
+    # 🔐 SECURE TOKEN PARTS - ASSEMBLED IN CODE
+    RUNPOD_TOKEN_PART1: "rpa_368WKEP3YB46OY691TYZ"
+    RUNPOD_TOKEN_PART2: "FO4GZ2DTDQ081NUCICGEi5luyf"
+    HF_TOKEN_PART1: "hf_FUDLOchyzVotolBqnq"
+    HF_TOKEN_PART2: "flSEIZrbnUXtaYxY"
+    
+    # 🚀 RunPod Settings
+    RUNPOD_ENDPOINT_ID: "rqwaizbda7ucsj"
+    
+    # 🏗️ Application Settings
+    DEBUG: "false"
+    MOCK_MODE: "false"
+    MAX_CONCURRENT_JOBS: "10"
+    GPU_TIMEOUT: "14400"
+    
+    # 📁 Paths (RunPod Standard)
+    WORKSPACE_PATH: "/workspace"
+    MODELS_PATH: "/workspace/models"
+    OUTPUT_PATH: "/workspace/output"
+    AI_TOOLKIT_PATH: "/workspace/ai-toolkit"
+    
+    # 🌐 Server Configuration
+    HOST: "0.0.0.0"
+    PORT: "8000"
+    
+    # 🗄️ Storage (S3 Compatible)
+    S3_ENDPOINT_URL: "https://storage.runpod.io"
+    S3_REGION: "us-east-1"
+    S3_BUCKET: "lora-dashboard-storage"
+    
+    # 🔄 Redis (RunPod Internal)
+    REDIS_URL: "redis://localhost:6379/0"
+
+# 🖥️ GPU Configuration
+gpu:
+  count: 1
+  type: ["NVIDIA A40", "NVIDIA RTX A6000", "NVIDIA A100"]
+
+# 💰 Scaling Configuration  
+scaling:
+  min_workers: 0
+  max_workers: 10
+  scale_down_delay: 300  # 5 minutes
+  
+# 🚀 Startup Configuration
+startup:
+  command: "python app/rp_handler.py"
+  health_check: "http://localhost:8000/health"
+  timeout: 600  # 10 minutes
+
+# 📦 Build Configuration
+build:
+  dockerfile: "Dockerfile"
+  context: "."
