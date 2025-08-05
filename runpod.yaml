@@ -56,7 +56,7 @@ scaling:
   
 # 🚀 Startup Configuration
 startup:
-  command: "python app/rp_handler.py"
+  command: "python -u app/rp_handler.py"
   health_check: "http://localhost:8000/health"
   timeout: 600  # 10 minutes
 

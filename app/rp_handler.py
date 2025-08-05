@@ -669,7 +669,4 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
 # Start RunPod Serverless
 if __name__ == "__main__":
     log("🚀 Starting LoRA Dashboard RunPod Serverless Handler", "INFO")
-    runpod.serverless.start({
-        "handler": handler,
-        "return_aggregate_stream": True
-    }) 
+    runpod.serverless.start({"handler": handler}) 
