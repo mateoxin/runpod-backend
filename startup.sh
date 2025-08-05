@@ -1,13 +1,12 @@
 #!/bin/bash
 # 🚀 Startup script for Backend/ 
-# Based on successful runpod-fastbackend/ approach
+# Based on successful runpod-fastbackend/ approach - FLAT STRUCTURE
 
 echo "🚀 Starting LoRA Dashboard Backend..."
 
-# Set environment variables
+# Set environment variables (flat structure like runpod-fastbackend)
 export PYTHONUNBUFFERED=1
 export WORKSPACE_PATH=${WORKSPACE_PATH:-/workspace}
-export PYTHONPATH=/app
 
 # Create workspace directories
 mkdir -p $WORKSPACE_PATH/training_data
@@ -32,6 +31,7 @@ else
     export IS_RUNPOD=false
 fi
 
-# Start the handler
+# Start the handler (flat structure like runpod-fastbackend)
 echo "🚀 Starting RunPod handler..."
-python -u /app/rp_handler.py
+cd /
+python -u /rp_handler.py

@@ -4,7 +4,7 @@
 
 FROM python:3.11.1-slim
 
-# Set working directory
+# Set working directory (flat structure like runpod-fastbackend)
 WORKDIR /
 
 # Install system dependencies
