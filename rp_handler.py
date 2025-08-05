@@ -4,6 +4,11 @@
 Minimal handler with runtime setup for heavy dependencies
 Deploy time: ~30 seconds instead of 20 minutes!
 Based on successful runpod-fastbackend/ approach
+
+🔄 QUEUE MANAGEMENT:
+- Uses RunPod's built-in queue system (IN_QUEUE → IN_PROGRESS → COMPLETED)
+- No Redis needed - RunPod handles job queuing and status tracking
+- Handler simply returns results, RunPod manages the rest
 """
 
 import runpod
@@ -69,16 +74,16 @@ def setup_environment():
         else:
             log("ℹ️ No HuggingFace token provided", "INFO")
         
-        # Step 3: Install only essential dependencies (fast)
-        log("📦 Installing essential dependencies...", "INFO")
+        # Step 3: Install minimal dependencies (no Redis - RunPod has built-in queue)
+        log("📦 Installing minimal dependencies...", "INFO")
         try:
             result = subprocess.run([
                 sys.executable, "-m", "pip", "install", 
-                "redis>=5.0.1", "boto3>=1.34.0"
+                "boto3>=1.34.0"  # Only S3 for storage, RunPod handles queue
             ], capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                log("✅ Essential dependencies installed", "INFO")
+                log("✅ Minimal dependencies installed", "INFO")
             else:
                 log("⚠️ Some dependencies failed, continuing...", "WARN")
         except Exception as e:
@@ -109,7 +114,8 @@ def get_mock_services():
     class MockProcessManager:
         def __init__(self, **kwargs):
             log("Mock Process Manager initialized", "INFO")
-            self.processes = {}
+            log("Using RunPod built-in queue system (no Redis needed)", "INFO")
+            self.processes = {}  # Local storage for demo - RunPod handles real queue
         
         async def initialize(self):
             log("Mock Process Manager initialized async", "INFO")
@@ -202,8 +208,8 @@ async def initialize_services():
         _gpu_manager = _services['GPUManager']()
         _process_manager = _services['ProcessManager'](
             gpu_manager=_gpu_manager,
-            storage_service=_storage_service,
-            redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+            storage_service=_storage_service
+            # No Redis needed - RunPod handles queue management
         )
         
         # Initialize process manager async
