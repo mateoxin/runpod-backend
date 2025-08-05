@@ -260,11 +260,15 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     request_id = None
     try:
+        log(f"🎯 Received job: {event}", "INFO")
+        
         # Initialize services if needed
         await initialize_services()
         
         job_input = event.get("input", {})
         job_type = job_input.get("type")
+        
+        log(f"📦 Processing job type: {job_type}", "INFO")
         
         # Log incoming request
         request_id = None
