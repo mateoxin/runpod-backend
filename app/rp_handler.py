@@ -75,11 +75,9 @@ def setup_environment():
         os.makedirs("/workspace/models", exist_ok=True)
         os.makedirs("/workspace/logs", exist_ok=True)
         
-        # Step 3: Setup HuggingFace token (SECURE ASSEMBLY)
-        # SECURE HF TOKEN ASSEMBLY - split for security
-        hf_part1 = "hf_FUDLOchyzVotolBqnq"
-        hf_part2 = "flSEIZrbnUXtaYxY"
-        hf_token = hf_part1 + hf_part2
+        # Step 3: Setup HuggingFace token (FROM ENVIRONMENT)
+        # Get HF token from RunPod environment variables
+        hf_token = os.environ.get("HF_TOKEN", "")
         if hf_token and hf_token != "":
             log("🤗 Setting up HuggingFace token...", "INFO")
             try:
