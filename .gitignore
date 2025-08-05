@@ -134,3 +134,7 @@ test_report*.json
 app/__pycache__/
 app/**/__pycache__/
 app/**/*.pyc
+
+# Deploy guides with sensitive tokens
+RUNPOD_GITHUB_DEPLOY_GUIDE.md
+*DEPLOY_GUIDE*.md
