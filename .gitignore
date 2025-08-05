@@ -138,3 +138,4 @@ app/**/*.pyc
 # Deploy guides with sensitive tokens
 RUNPOD_GITHUB_DEPLOY_GUIDE.md
 *DEPLOY_GUIDE*.md
+DEPLOY_QUICK_GUIDE.md
