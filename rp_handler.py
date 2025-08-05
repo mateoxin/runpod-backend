@@ -37,14 +37,12 @@ RUNNING_PROCESSES: Dict[str, Dict[str, Any]] = {}
 PROCESS_LOCK = threading.Lock()
 
 def log(message, level="INFO"):
-    """Unified logging to stdout and stderr for RunPod visibility"""
+    """Unified logging to stdout for RunPod visibility"""
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_msg = f"[{timestamp}] {level}: {message}"
     
-    # Write to both stdout and stderr for maximum visibility
+    # Write only to stdout to avoid duplicate logs in RunPod
     print(log_msg)
-    sys.stderr.write(f"{log_msg}\n")
-    sys.stderr.flush()
     sys.stdout.flush()
 
 # Configure logging
@@ -468,7 +466,7 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         
         if job_type == "health":
             response = await handle_health_check()
-        elif job_type == "train":
+        elif job_type == "train" or job_type == "train_with_yaml":
             response = await handle_training(job_input)
         elif job_type == "generate":
             response = await handle_generation(job_input)
@@ -476,7 +474,7 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             response = await handle_get_processes(job_input)
         elif job_type == "process_status":
             response = await handle_process_status(job_input)
-        elif job_type == "lora":
+        elif job_type == "lora" or job_type == "list_models":
             response = await handle_get_lora_models()
         elif job_type == "cancel":
             response = await handle_cancel_process(job_input)
@@ -489,7 +487,7 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         else:
             response = {
                 "error": f"Unknown job type: {job_type}",
-                "supported_types": ["health", "train", "generate", "processes", "process_status", "lora", "cancel", "download", "upload_training_data", "bulk_download"]
+                "supported_types": ["health", "train", "train_with_yaml", "generate", "processes", "process_status", "lora", "list_models", "cancel", "download", "upload_training_data", "bulk_download"]
             }
         
         # Log successful response
@@ -723,7 +721,13 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
             # Decode base64 content and save
             import base64
             try:
-                file_content = base64.b64decode(content)
+                # Fix base64 padding if needed
+                content_padded = content
+                missing_padding = len(content) % 4
+                if missing_padding:
+                    content_padded += '=' * (4 - missing_padding)
+                
+                file_content = base64.b64decode(content_padded)
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 
