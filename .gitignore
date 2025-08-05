@@ -131,7 +131,7 @@ models/
 test_report*.json
 
 # Python cache files in app/ (but NOT the app/ folder itself!)
-app/__pycache__/
+# app/__pycache__/ - removed flat structure
 app/**/__pycache__/
 app/**/*.pyc
 

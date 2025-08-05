@@ -3,18 +3,15 @@
 🚀 ULTRA-FAST RUNPOD HANDLER - LoRA Dashboard Backend
 Minimal handler with runtime setup for heavy dependencies
 Deploy time: ~30 seconds instead of 20 minutes!
-Based on successful runpod-fastbackend/ approach
+Based on successful runpod-fastbackend/ approach - FLAT STRUCTURE
 """
 
 import runpod
-import asyncio
-import logging
 import os
 import sys
 import subprocess
 import time
 from datetime import datetime
-from typing import Dict, Any
 
 # Global flag to track if environment is setup
 ENVIRONMENT_READY = False
