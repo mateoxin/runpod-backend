@@ -223,6 +223,10 @@ def get_real_services():
                 with open(config_path, 'w') as f:
                     f.write(config)
                 
+                # Log YAML config details
+                log(f"💾 YAML config written to: {config_path}", "INFO")
+                log(f"📄 Full YAML config for {process_id}:\n{config}", "INFO")
+                
                 # Login to HuggingFace
                 login_cmd = ["huggingface-cli", "login", "--token", hf_token]
                 login_result = subprocess.run(login_cmd, capture_output=True, text=True)
@@ -467,6 +471,14 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         if job_type == "health":
             response = await handle_health_check()
         elif job_type == "train" or job_type == "train_with_yaml":
+            # Handle both train and train_with_yaml
+            if job_type == "train_with_yaml":
+                # Extract yaml_config if provided in train_with_yaml format
+                yaml_config = job_input.get("yaml_config")
+                if yaml_config:
+                    log(f"📄 train_with_yaml: Received YAML config (first 300 chars): {str(yaml_config)[:300]}...", "INFO")
+                    # Convert to standard format for handle_training
+                    job_input["config"] = yaml_config
             response = await handle_training(job_input)
         elif job_type == "generate":
             response = await handle_generation(job_input)
@@ -533,6 +545,9 @@ async def handle_training(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if not config:
             return {"error": "Missing 'config' parameter"}
         
+        # Log incoming YAML configuration
+        log(f"📝 Training YAML config received (first 500 chars): {str(config)[:500]}...", "INFO")
+        
         if not _process_manager:
             return {"error": "Process manager not initialized"}
         
@@ -558,6 +573,10 @@ async def handle_generation(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if not config and prompt:
             config = f"prompt: '{prompt}'"
             log(f"📝 Created simple config from prompt: {prompt}", "INFO")
+        
+        # Log generation config
+        if config:
+            log(f"🖼️ Generation config received (first 300 chars): {str(config)[:300]}...", "INFO")
         
         if not _process_manager:
             return {"error": "Process manager not initialized"}
