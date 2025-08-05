@@ -652,24 +652,10 @@ async def handle_bulk_download(job_input: Dict[str, Any]) -> Dict[str, Any]:
         log(f"❌ Bulk download error: {e}", "ERROR")
         return {"error": f"Failed to create bulk download: {str(e)}"}
 
-# Sync wrapper for RunPod
-def handler(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Synchronous wrapper for async handler"""
-    try:
-        # Run async handler in event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(async_handler(event))
-        loop.close()
-        return result
-    except Exception as e:
-        log(f"💥 Handler wrapper error: {e}", "ERROR")
-        return {"error": str(e)}
-
 # Start RunPod Serverless
 if __name__ == "__main__":
     log("🚀 Starting LoRA Dashboard RunPod Serverless Handler", "INFO")
     runpod.serverless.start({
-        "handler": handler,
+        "handler": async_handler,  # ✅ Bezpośrednio async handler
         "return_aggregate_stream": True
     }) 
