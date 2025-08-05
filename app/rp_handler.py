@@ -656,18 +656,39 @@ async def handle_bulk_download(job_input: Dict[str, Any]) -> Dict[str, Any]:
         log(f"❌ Bulk download error: {e}", "ERROR")
         return {"error": f"Failed to create bulk download: {str(e)}"}
 
-# Sync wrapper for RunPod
-def handler(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Synchronous wrapper for async handler"""
+# Direct handler for RunPod (like runpod-fastbackend)
+def handler(job):
+    """Direct handler with immediate logging visibility"""
     try:
-        # Run async handler in event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(async_handler(event))
-        loop.close()
-        return result
+        log(f"🎯 Received job: {job}", "INFO")
+        
+        # Extract input
+        job_input = job.get("input", {})
+        job_type = job_input.get("type")
+        
+        log(f"📦 Processing job type: {job_type}", "INFO")
+        
+        # For now, just return basic response like working runpod-fastbackend
+        if job_type == "health" or job_type == "health_check":
+            log("✅ Health check completed", "INFO")
+            return {
+                "status": "healthy",
+                "message": "LoRA Dashboard Backend is running",
+                "timestamp": datetime.now().isoformat(),
+                "version": "1.0.0"
+            }
+        
+        # Default response for other types
+        log(f"🔄 Processing {job_type} request...", "INFO")
+        return {
+            "status": "received", 
+            "job_type": job_type,
+            "message": f"Processing {job_type} request",
+            "timestamp": datetime.now().isoformat()
+        }
+        
     except Exception as e:
-        log(f"💥 Handler wrapper error: {e}", "ERROR")
+        log(f"💥 Handler error: {e}", "ERROR")
         return {"error": str(e)}
 
 # Start RunPod Serverless
