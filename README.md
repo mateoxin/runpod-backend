@@ -21,8 +21,8 @@ Optimized for RunPod deployment with fast startup times.
 # Activate virtual environment  
 source venv/bin/activate
 
-# Start FastAPI server
-python app/main.py
+# Start RunPod handler
+python rp_handler.py
 ```
 
 ### RunPod Deployment
@@ -43,19 +43,13 @@ python app/main.py
 
 ```
 Backend/
-├── app/
-│   ├── rp_handler.py          # RunPod serverless handler
-│   ├── main.py                # FastAPI application
-│   ├── core/
-│   │   ├── logger.py          # Unified logging system
-│   │   ├── config.py          # Configuration management
-│   │   └── models.py          # Data models
-│   ├── services/              # Business logic services
-│   └── adapters/              # External service adapters
+├── rp_handler.py              # RunPod serverless handler (all-in-one)
 ├── requirements_minimal.txt   # Minimal dependencies for fast startup
 ├── Dockerfile                 # Optimized for quick builds
 ├── startup.sh                 # Environment startup script
-└── setup_env.sh              # Local development setup
+├── setup_env.sh               # Local development setup
+├── config.env.template        # Configuration template
+└── runpod.yaml                # RunPod deployment configuration
 ```
 
 ## 🔧 Configuration
@@ -67,32 +61,25 @@ Backend/
 
 2. Edit `config.env` with your settings:
    ```bash
-   # RunPod/API Keys
-   RUNPOD_API_KEY=your_runpod_key
+   # HuggingFace Token (set via RunPod environment variables)
    HF_TOKEN=your_huggingface_token
    
-   # Environment
+   # Environment (auto-configured)
    WORKSPACE_PATH=/workspace
-   REDIS_URL=redis://localhost:6379/0
    ```
 
 ## 🧪 Testing
 
-Run compatibility tests:
-```bash
-python3 test_git_deploy.py
-```
-
 Test specific components:
 ```bash
 # Test handler syntax
-python -m py_compile app/rp_handler.py
+python -m py_compile rp_handler.py
 
-# Test FastAPI app
-python app/main.py
+# Test RunPod handler
+python rp_handler.py
 
 # Test imports
-python -c "import app.rp_handler"
+python -c "import rp_handler"
 ```
 
 ## 📊 Deployment Approach
@@ -121,11 +108,12 @@ python -c "import app.rp_handler"
 - `httpx>=0.25.0` - HTTP client
 
 ### Runtime (Installed when needed)
-- `redis>=5.0.1` - Process management
 - `boto3>=1.34.0` - AWS S3 operations
 - `torch` - Machine learning framework
 - `transformers` - NLP models
 - `diffusers` - Diffusion models
+
+**Note**: Redis not used - RunPod provides built-in queue system
 
 ## 🔄 API Endpoints
 
@@ -151,9 +139,7 @@ The system uses unified logging for RunPod compatibility:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WORKSPACE_PATH` | Working directory | `/workspace` |
-| `RUNPOD_API_KEY` | RunPod API key | Required |
-| `HF_TOKEN` | HuggingFace token | Optional |
-| `REDIS_URL` | Redis connection | `redis://localhost:6379/0` |
+| `HF_TOKEN` | HuggingFace token | Required |
 | `DEBUG` | Debug mode | `false` |
 
 ## 🚨 Troubleshooting
@@ -163,7 +149,7 @@ The system uses unified logging for RunPod compatibility:
 1. **Import Errors**: Run runtime setup
    ```bash
    # Inside RunPod container
-   python app/rp_handler.py
+   python rp_handler.py
    ```
 
 2. **Permission Errors**: Check workspace permissions
@@ -197,7 +183,7 @@ export LOG_LEVEL=DEBUG
 1. Follow the fast deployment pattern
 2. Add runtime setup for heavy dependencies
 3. Use unified logging for all output
-4. Test with `test_git_deploy.py`
+4. Test deployment on RunPod
 5. Update documentation
 
 ## 📄 License

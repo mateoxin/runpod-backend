@@ -20,19 +20,14 @@
 
 ```
 Backend/
-├── 📱 app/
-│   ├── rp_handler.py          # ✅ RunPod serverless handler
-│   ├── main.py                # ✅ FastAPI application  
-│   ├── core/                  # ✅ Core services
-│   ├── services/              # ✅ Business logic
-│   └── adapters/              # ✅ External integrations
+├── 🚀 rp_handler.py           # ✅ RunPod serverless handler (all-in-one)
 ├── 🐳 Dockerfile              # ✅ Optimized for GitHub deploy
 ├── 📦 requirements_minimal.txt # ✅ Fast startup dependencies
 ├── 🔧 config.env.template     # ✅ Configuration template
 ├── 🔒 .gitignore              # ✅ Secrets protection
 ├── 📚 README.md               # ✅ Deploy instructions
-├── 🧪 test_*.py               # ✅ Verification tools
-└── 🚀 startup.sh              # ✅ Environment setup
+├── 🚀 startup.sh              # ✅ Environment setup
+└── ⚙️ runpod.yaml             # ✅ RunPod configuration
 ```
 
 ## 🚀 Deploy Instructions
@@ -68,7 +63,7 @@ PYTHONUNBUFFERED=1
 
 #### Docker Command:
 ```bash
-python -u /app/rp_handler.py
+python -u /rp_handler.py
 ```
 
 ### 3. Expected Deploy Performance
@@ -103,19 +98,14 @@ python -u /app/rp_handler.py
 
 ### Pre-Deploy Testing
 ```bash
-# Test GitHub deploy readiness
-python3 test_github_deploy_readiness.py
+# Test handler syntax
+python -m py_compile rp_handler.py
 
-# Test token configuration
-python3 test_tokens.py
+# Test handler execution
+python rp_handler.py
 
-# Test file compatibility
-python3 test_git_deploy.py
-```
-
-### Expected Output
-```
-🎉 ALL TESTS PASSED! Backend/ is READY for GitHub deploy to RunPod!
+# Test imports
+python -c "import rp_handler"
 ```
 
 ## 🎯 Supported Functionality

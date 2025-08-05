@@ -165,7 +165,6 @@ def get_mock_services():
             return ["mock_lora_model_1.safetensors", "mock_lora_model_2.safetensors"]
     
     return {
-        'enhanced_logger': logger,  # Use standard logger
         'GPUManager': MockGPUManager,
         'ProcessManager': MockProcessManager,
         'StorageService': MockStorageService,
@@ -180,11 +179,10 @@ _gpu_manager = None
 _process_manager = None
 _storage_service = None
 _lora_service = None
-_enhanced_logger = None
 
 async def initialize_services():
     """Initialize simplified services for fast deployment"""
-    global _services_initialized, _services, _gpu_manager, _process_manager, _storage_service, _lora_service, _enhanced_logger
+    global _services_initialized, _services, _gpu_manager, _process_manager, _storage_service, _lora_service
     
     if _services_initialized:
         return
@@ -199,7 +197,6 @@ async def initialize_services():
         
         log("🚀 Initializing simplified services...", "INFO")
         
-        _enhanced_logger = _services['enhanced_logger']
         settings = _services['get_settings']() if _services['get_settings'] else {"workspace_path": "/workspace"}
         
         # Initialize mock services (create instances)
@@ -252,13 +249,8 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             log("📝 Auto-detected generation request from prompt", "INFO")
         
         # Log incoming request
-        request_id = None
-        if _enhanced_logger:
-            request_id = _enhanced_logger.log_request(
-                request_type=job_type or "unknown",
-                request_data=job_input,
-                endpoint="runpod_serverless"
-            )
+        request_id = f"req_{int(time.time() * 1000)}"
+        log(f"📨 Incoming {job_type or 'unknown'} request | Request ID: {request_id}", "INFO")
         
         log(f"📨 Processing job type: {job_type} | Request ID: {request_id}", "INFO")
         
@@ -289,12 +281,8 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             }
         
         # Log successful response
-        if _enhanced_logger and request_id:
-            _enhanced_logger.log_response(
-                request_id=request_id,
-                response_data=response,
-                status_code=200 if not response.get("error") else 400
-            )
+        status = "success" if not response.get("error") else "error"
+        log(f"✅ Request completed: {status} | Request ID: {request_id}", "INFO")
         
         return response
             
@@ -303,14 +291,7 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         error_response = {"error": str(e)}
         
         # Log error response
-        if _enhanced_logger and request_id:
-            _enhanced_logger.log_error(e, {"event": event}, request_id)
-            _enhanced_logger.log_response(
-                request_id=request_id,
-                response_data=error_response,
-                status_code=500,
-                error=str(e)
-            )
+        log(f"❌ Request failed | Request ID: {request_id} | Error: {str(e)}", "ERROR")
         
         return error_response
 
@@ -544,12 +525,7 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                 uploaded_files.append(file_data)
                 
                 # Log file operation
-                if _enhanced_logger:
-                    _enhanced_logger.log_file_operation(
-                        operation="upload",
-                        file_info=file_data,
-                        request_id=request_id
-                    )
+                log(f"📁 File uploaded: {filename} | Size: {file_data['size']} bytes | Request ID: {request_id}", "INFO")
                 
                 # Count file types
                 if content_type and content_type.startswith('image/'):
@@ -558,9 +534,7 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                     caption_count += 1
                     
             except Exception as e:
-                log(f"❌ Failed to process file {filename}: {e}", "ERROR")
-                if _enhanced_logger:
-                    _enhanced_logger.log_error(e, {"filename": filename}, request_id)
+                log(f"❌ Failed to process file {filename} | Request ID: {request_id} | Error: {e}", "ERROR")
                 continue
         
         # Create trigger word info file

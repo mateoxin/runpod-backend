@@ -16,7 +16,7 @@ def log(message, level="INFO"):
     sys.stdout.flush()
 ```
 
-### Backend/app/rp_handler.py
+### Backend/rp_handler.py
 ```python
 def log(message, level="INFO"):
     """Unified logging to stdout and stderr for RunPod visibility"""

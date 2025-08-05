@@ -75,7 +75,7 @@ PORT=8000
 ```
 Serverless/Backend/
 ├── 🐳 Dockerfile              # RunPod container
-├── 🚀 app/rp_handler.py       # Main RunPod handler  
+├── 🚀 rp_handler.py           # Main RunPod handler (all-in-one)
 ├── ⚙️ runpod.yaml             # RunPod configuration
 ├── 📦 requirements_minimal.txt # Fast deployment
 ├── 🔐 config.env              # Secure token parts

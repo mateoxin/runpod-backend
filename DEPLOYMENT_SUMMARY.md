@@ -76,7 +76,7 @@ pip install torch transformers diffusers  # Runtime z RunPod cache
 # W RunPod endpoint configuration:
 Repository URL: https://github.com/your-username/your-repo.git
 Branch: main
-Docker Command: python -u /app/rp_handler.py
+Docker Command: python -u /rp_handler.py
 ```
 
 ### Option 2: Manual Docker  

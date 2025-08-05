@@ -49,7 +49,7 @@
 ## ✅ Essential Files Kept
 
 ### 🚀 Core Application
-- `app/` - Complete application directory
+- `rp_handler.py` - Complete serverless handler (all-in-one)
 - `Dockerfile` - Optimized for GitHub deploy
 - `requirements_minimal.txt` - Fast deployment dependencies
 
@@ -96,7 +96,7 @@
 
 ```
 Backend/                           # 18 files total
-├── 📱 app/                       # Core application
+├── 📱 rp_handler.py              # Core serverless handler (all-in-one)
 ├── 🐳 Dockerfile                 # Container definition
 ├── 📦 requirements_minimal.txt   # Dependencies
 ├── 🔧 config.env*               # Configuration

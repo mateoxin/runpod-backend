@@ -37,7 +37,7 @@ RUNPOD_ENDPOINT_ID=your_endpoint_id_here
 ## 🔧 Integration w Kodzie
 
 ### HuggingFace Token Usage
-W `app/rp_handler.py`:
+W `rp_handler.py`:
 ```python
 # Step 3: Setup HuggingFace token
 hf_token = os.environ.get("HF_TOKEN", "")
@@ -111,7 +111,7 @@ Expected output:
 ### Local Testing
 ```bash
 # Tokeny już skonfigurowane w config.env
-python app/main.py
+python rp_handler.py
 ```
 
 ### RunPod Deployment

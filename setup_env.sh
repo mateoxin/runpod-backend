@@ -35,5 +35,4 @@ pip install -r requirements_minimal.txt
 
 echo "✅ Backend/ environment setup complete!"
 echo "💡 To activate: source venv/bin/activate"
-echo "💡 To test locally: python app/main.py"
-echo "💡 To test RunPod handler: python app/rp_handler.py"
+echo "💡 To test RunPod handler: python rp_handler.py"
