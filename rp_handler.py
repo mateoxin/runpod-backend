@@ -1,49 +1,34 @@
 #!/usr/bin/env python3
 """
-🚀 MINIMAL RUNPOD HANDLER - WITH WORKING LOGGING
-Copied logging pattern from working runpod-fastbackend
+🚀 RUNPOD HANDLER - EXACTLY LIKE OFFICIAL DOCUMENTATION
+Based on official RunPod documentation examples
 """
 
 import runpod
-import sys
-import time
-from datetime import datetime
-
-def log(message, level="INFO"):
-    """Unified logging to stdout and stderr for RunPod visibility - COPIED FROM WORKING runpod-fastbackend"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    log_msg = f"[{timestamp}] {level}: {message}"
-    
-    # Write to both stdout and stderr for maximum visibility
-    print(log_msg)
-    sys.stderr.write(f"{log_msg}\n")
-    sys.stderr.flush()
-    sys.stdout.flush()
 
 def handler(job):
-    """ULTRA-MINIMAL HANDLER - ONLY HEALTH CHECK"""
-    log(f"🎯 Received job: {job}", "INFO")
+    """Handler exactly like RunPod documentation examples"""
+    print(f"🚀 Worker Start - job ID: {job.get('id', 'unknown')}")
     
     job_input = job["input"]
     job_type = job_input.get("type", "unknown")
     
-    log(f"📦 Processing job type: {job_type}", "INFO")
+    print(f"📦 Processing job type: {job_type}")
     
-    # ONLY HEALTH CHECK - NOTHING ELSE
+    # ONLY HEALTH CHECK - EXACTLY LIKE DOCS
     if job_type == "health":
-        log(f"✅ Health check completed", "INFO")
+        print(f"✅ Health check completed")
         return {
             "status": "healthy",
-            "message": "MINIMAL HANDLER WORKS!",
-            "timestamp": datetime.now().isoformat()
+            "message": "DOCS EXAMPLE WORKS!"
         }
     
     # Everything else returns error
-    log(f"❌ Unsupported job type: {job_type}", "ERROR")
+    print(f"❌ Unsupported job type: {job_type}")
     return {
         "error": f"Only 'health' type supported, got: {job_type}"
     }
 
 if __name__ == "__main__":
-    log("🚀 Starting MINIMAL RunPod Handler - WITH WORKING LOGGING!", "INFO")
+    print("🚀 Starting RunPod Handler - DOCS EXAMPLE!")
     runpod.serverless.start({"handler": handler})
