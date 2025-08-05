@@ -662,8 +662,8 @@ def handler(job):
     try:
         log(f"🎯 Received job: {job}", "INFO")
         
-        # Extract input
-        job_input = job.get("input", {})
+        # Extract input (following RunPod documentation pattern)
+        job_input = job["input"]
         job_type = job_input.get("type")
         
         log(f"📦 Processing job type: {job_type}", "INFO")

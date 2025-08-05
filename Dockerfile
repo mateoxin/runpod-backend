@@ -37,4 +37,4 @@ ENV MAX_CONCURRENT_JOBS=10
 ENV GPU_TIMEOUT=14400
 
 # Command to run the handler
-CMD ["python", "-u", "/app/rp_handler.py"] 
+CMD ["python", "-u", "/app/app/rp_handler.py"] 
