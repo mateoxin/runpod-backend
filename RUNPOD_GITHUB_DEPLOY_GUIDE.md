@@ -31,23 +31,32 @@ Repository Settings:
 
 ### **5️⃣ KONFIGURACJA ŚRODOWISKA (ENVIRONMENT VARIABLES)**
 
-⚠️ **KRYTYCZNE**: Ustaw następujące zmienne środowiskowe:
+⚠️ **TYLKO JEDNA ZMIENNA DO USTAWIENIA**:
 
 ```bash
-# 🔑 WYMAGANE TOKENY
+# 🔑 JEDYNA WYMAGANA ZMIENNA
 HF_TOKEN=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
+```
 
-# 🔧 KONFIGURACJA SYSTEMU  
+✅ **AUTOMATYCZNIE USTAWIONE W DOCKERFILE** (nie musisz ich dodawać):
+```bash
+# ✅ Już skonfigurowane automatycznie:
 WORKSPACE_PATH=/workspace
 PYTHONUNBUFFERED=1
 HOST=0.0.0.0
 PORT=8000
-
-# 🎯 OPCJONALNE (mają domyślne wartości)
 DEBUG=false
 MOCK_MODE=false
 MAX_CONCURRENT_JOBS=10
 GPU_TIMEOUT=14400
+```
+
+🎯 **OPCJONALNE** (tylko jeśli chcesz zmienić domyślne):
+```bash
+# Możesz nadpisać w RunPod Console jeśli potrzebujesz:
+REDIS_URL=redis://your-redis:6379/0  # domyślnie: redis://localhost:6379/0
+MAX_CONCURRENT_JOBS=20               # domyślnie: 10
+GPU_TIMEOUT=7200                     # domyślnie: 14400 (4h)
 ```
 
 ### **6️⃣ KONFIGURACJA GPU**
@@ -136,18 +145,18 @@ curl -X POST https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync \
 
 ### **🌐 Environment Variables - Pełna Lista**
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `HF_TOKEN` | ✅ **YES** | - | HuggingFace token |
-| `WORKSPACE_PATH` | No | `/workspace` | Main workspace path |
-| `PYTHONUNBUFFERED` | No | `1` | Python logging |
-| `HOST` | No | `0.0.0.0` | Server host |
-| `PORT` | No | `8000` | Server port |
-| `DEBUG` | No | `false` | Debug mode |
-| `MOCK_MODE` | No | `false` | Mock mode for testing |
-| `MAX_CONCURRENT_JOBS` | No | `10` | Max parallel jobs |
-| `GPU_TIMEOUT` | No | `14400` | GPU timeout (seconds) |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection |
+| Variable | Required | Auto-Set | Default | Description |
+|----------|----------|----------|---------|-------------|
+| `HF_TOKEN` | ✅ **YES** | ❌ | - | HuggingFace token (USTAW RĘCZNIE) |
+| `WORKSPACE_PATH` | No | ✅ | `/workspace` | Main workspace path |
+| `PYTHONUNBUFFERED` | No | ✅ | `1` | Python logging |
+| `HOST` | No | ✅ | `0.0.0.0` | Server host |
+| `PORT` | No | ✅ | `8000` | Server port |
+| `DEBUG` | No | ✅ | `false` | Debug mode |
+| `MOCK_MODE` | No | ✅ | `false` | Mock mode for testing |
+| `MAX_CONCURRENT_JOBS` | No | ✅ | `10` | Max parallel jobs |
+| `GPU_TIMEOUT` | No | ✅ | `14400` | GPU timeout (seconds) |
+| `REDIS_URL` | No | ❌ | `redis://localhost:6379/0` | Redis connection |
 
 ### **📊 Performance Optimization**
 
@@ -208,16 +217,17 @@ curl -X POST https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/runsync \
 
 ---
 
-## ✅ **CHECKLIST PRZED DEPLOY**
+## ✅ **SUPER PROSTY CHECKLIST PRZED DEPLOY**
 
 - [ ] Repository URL: `https://github.com/mateoxin/runpod-backend.git`
 - [ ] Branch: `main`
 - [ ] Dockerfile Path: `Dockerfile`
-- [ ] HF_TOKEN ustawiony: `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`
+- [ ] **JEDYNA RĘCZNA KONFIGURACJA**: HF_TOKEN = `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`
 - [ ] GPU Type: A40 lub lepszy
-- [ ] Min Workers: 0
-- [ ] Max Workers: 10
+- [ ] Min Workers: 0, Max Workers: 10
 - [ ] Container Start Command: `python -u /app/app/rp_handler.py`
+
+🎉 **POZOSTAŁE ZMIENNE AUTOMATYCZNIE USTAWIONE W DOCKERFILE!**
 
 ---
 

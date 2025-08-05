@@ -29,6 +29,12 @@ RUN mkdir -p /workspace/training_data \
 ENV PYTHONUNBUFFERED=1
 ENV WORKSPACE_PATH=/workspace
 ENV PYTHONPATH=/app
+ENV HOST=0.0.0.0
+ENV PORT=8000
+ENV DEBUG=false
+ENV MOCK_MODE=false
+ENV MAX_CONCURRENT_JOBS=10
+ENV GPU_TIMEOUT=14400
 
 # Command to run the handler
 CMD ["python", "-u", "/app/app/rp_handler.py"] 
