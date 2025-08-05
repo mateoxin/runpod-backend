@@ -92,6 +92,72 @@ def setup_environment():
         else:
             log("⚠️ No HuggingFace token provided", "WARN")
         
+        # Step 4: Install AI-Toolkit
+        log("🤖 Installing AI-Toolkit (ostris/ai-toolkit)...", "INFO")
+        toolkit_path = "/workspace/ai-toolkit"
+        
+        if not os.path.exists(toolkit_path):
+            try:
+                log("📥 Cloning AI-Toolkit repository...", "INFO")
+                result = subprocess.run([
+                    "git", "clone", 
+                    "https://github.com/ostris/ai-toolkit.git",
+                    toolkit_path
+                ], capture_output=True, text=True, timeout=120)
+                
+                if result.returncode != 0:
+                    log(f"❌ AI-Toolkit clone failed: {result.stderr}", "ERROR")
+                    return False
+                
+                log("✅ AI-Toolkit repository cloned successfully", "INFO")
+                
+                # Install AI-Toolkit dependencies
+                log("📦 Installing AI-Toolkit dependencies...", "INFO")
+                result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", "-r", 
+                    f"{toolkit_path}/requirements.txt"
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    log(f"⚠️ AI-Toolkit dependencies install warning: {result.stderr}", "WARN")
+                    log("📄 Continuing with manual torch installation...", "INFO")
+                    
+                    # Install essential packages manually
+                    essential_packages = [
+                        "torch>=2.0.0",
+                        "torchvision>=0.15.0",
+                        "diffusers>=0.21.0",
+                        "transformers>=4.25.0",
+                        "accelerate>=0.20.0",
+                        "xformers",
+                        "safetensors",
+                        "Pillow",
+                        "numpy",
+                        "tqdm"
+                    ]
+                    
+                    for package in essential_packages:
+                        log(f"📦 Installing {package}...", "INFO")
+                        result = subprocess.run([
+                            sys.executable, "-m", "pip", "install", package
+                        ], capture_output=True, text=True, timeout=120)
+                        
+                        if result.returncode == 0:
+                            log(f"✅ {package} installed successfully", "INFO")
+                        else:
+                            log(f"⚠️ {package} install failed, continuing...", "WARN")
+                else:
+                    log("✅ AI-Toolkit dependencies installed successfully", "INFO")
+                    
+            except subprocess.TimeoutExpired:
+                log("❌ AI-Toolkit installation timeout", "ERROR")
+                return False
+            except Exception as e:
+                log(f"❌ AI-Toolkit installation failed: {e}", "ERROR")
+                return False
+        else:
+            log("✅ AI-Toolkit already available", "INFO")
+        
         log("✅ Environment setup completed successfully!", "INFO")
         ENVIRONMENT_READY = True
         return True
