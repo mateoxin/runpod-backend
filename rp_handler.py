@@ -26,7 +26,6 @@ import shutil
 import glob
 from datetime import datetime
 from typing import Dict, Any, Optional
-from PIL import Image
 import io
 
 # Global flag to track if environment is setup
