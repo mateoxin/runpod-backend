@@ -1,0 +1,102 @@
+job: extension
+config:
+  name: "Matt_flux_lora_CONSERVATIVE"    # Konserwatywna wersja bliska oryginałowi
+
+  process:
+    - type: sd_trainer
+      training_folder: "/workspace/output"              # POPRAWIONE: Backend szuka w /workspace/output
+      device: cuda:0
+      trigger_word: "Matt"
+
+      # LoRA network - ZACHOWANE jak w działającym + subtelne ulepszenia
+      network:
+        type: lora
+        linear: 20                        # DELIKATNIE zwiększone z 16 → 20 (nie 32!)
+        linear_alpha: 20                  # Alpha = rank
+        # Bez conv layers - zachowujemy prostotę działającego pliku
+        network_dropout: 0.08             # DELIKATNIE zmniejszone z 0.1 → 0.08
+        transformer_only: true
+
+      # Zapisywanie - jak w działającym
+      save:
+        dtype: float16
+        save_every: 250                   # Jak w działającym
+        max_step_saves_to_keep: 4         # Jak w działającym
+        push_to_hub: false
+        save_format: "safetensors"
+        save_model_as: "safetensors"
+        save_precision: "fp16"
+
+      # Dataset - POPRAWIONE ścieżki
+      datasets:
+        - folder_path: "/workspace/training_data"       # POPRAWIONE: Backend automatycznie tworzy subfolders
+          caption_ext: "txt"
+          caption_dropout_rate: 0.04      # DELIKATNIE zmniejszone z 0.05 → 0.04
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: [512, 768, 1024]   # Jak w działającym
+          random_crop: false
+          center_crop: true
+          flip_p: 0.0
+          pin_memory: true
+          num_workers: 2
+          persistent_workers: true
+
+      # TRENING - ZACHOWANE kluczowe ustawienia z działającego pliku!
+      train:
+        batch_size: 1                     # JAK W DZIAŁAJĄCYM
+        steps: 1000                       # QUICK TEST - 1000 kroków dla pełnej weryfikacji systemu
+        gradient_accumulation_steps: 1    # JAK W DZIAŁAJĄCYM! (nie 4)
+        train_unet: true
+        train_text_encoder: false         # JAK W DZIAŁAJĄCYM - kluczowe!
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"            # JAK W DZIAŁAJĄCYM
+        lr: 0.00011                       # DELIKATNIE zwiększone z 0.0001 → 0.00011
+        # PROSTY scheduler jak w działającym (bez skomplikowanego cosine)
+        lr_scheduler: "constant"          # Zachowane proste ustawienie
+        # Precyzja
+        dtype: "bf16"
+        mixed_precision: "bf16"
+        # EMA - DOKŁADNIE jak w działającym
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99                 # JAK W DZIAŁAJĄCYM - kluczowe!
+        # Podstawowe ustawienia
+        max_grad_norm: 1.0
+        skip_cache_check: true
+        enable_xformers: true
+        compile_unet: false
+        dataloader_num_workers: 2
+        seed: 42
+        noise_offset: 0.06                # DELIKATNIE zwiększone z 0.05 → 0.06
+
+      # Model - POPRAWIONE na HuggingFace Hub
+      model:
+        name_or_path: "black-forest-labs/FLUX.1-dev"   # POPRAWIONE: HF Hub zamiast lokalnej ścieżki
+        is_flux: true
+        quantize: true                    # JAK W DZIAŁAJĄCYM
+        low_vram: false
+        dtype: "bf16"
+        attention_mechanism: "xformers"
+        use_8bit_adam: false
+        gradient_checkpointing_text_encoder: true
+
+      # Próbki - DOPASOWANE do training images (768x1024)
+      sample:
+        sampler: "flowmatch"              # JAK W DZIAŁAJĄCYM
+        sample_every: 250                 # JAK W DZIAŁAJĄCYM
+        width: 768                        # DOPASOWANE do najczęstszego training size
+        height: 1024                      # Portrait orientation jak training
+        guidance_scale: 4                 # JAK W DZIAŁAJĄCYM
+        sample_steps: 20                  # JAK W DZIAŁAJĄCYM (nie 28)
+        seed: 42
+        walk_seed: true
+        # WIĘCEJ PROMPTS dla lepszego FID calculation
+        prompts:
+          - "photo of Matt"               # Podstawowy
+          - "Matt in casual clothes"      # Dodatkowy styl
+          - "portrait of Matt"            # Alternatywny prompt
+        neg: ""                           # JAK W DZIAŁAJĄCYM
+        enable_attention_slicing: false
+        enable_sequential_cpu_offload: false
