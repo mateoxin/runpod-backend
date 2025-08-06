@@ -119,16 +119,30 @@ def setup_environment():
         else:
             log("ℹ️ No HuggingFace token provided", "INFO")
         
-        # Step 3: Install minimal dependencies (no Redis - RunPod has built-in queue)
-        log("📦 Installing minimal dependencies...", "INFO")
+        # Step 3: Install essential dependencies (no Redis - RunPod has built-in queue)
+        log("📦 Installing essential dependencies...", "INFO")
         try:
+            # Install HuggingFace Hub with CLI for model downloads and authentication
+            log("📦 Installing HuggingFace Hub...", "INFO")
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", "--upgrade",
+                "huggingface_hub[cli]>=0.24.0"
+            ], capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0:
+                log("✅ HuggingFace Hub installed", "INFO")
+            else:
+                log("⚠️ HuggingFace Hub install failed, continuing...", "WARN")
+            
+            # Install S3 support for storage
+            log("📦 Installing S3 support...", "INFO")
             result = subprocess.run([
                 sys.executable, "-m", "pip", "install", 
                 "boto3>=1.34.0"  # Only S3 for storage, RunPod handles queue
             ], capture_output=True, text=True, timeout=60)
             
             if result.returncode == 0:
-                log("✅ Minimal dependencies installed", "INFO")
+                log("✅ Essential dependencies installed", "INFO")
             else:
                 log("⚠️ Some dependencies failed, continuing...", "WARN")
         except Exception as e:
@@ -239,18 +253,16 @@ def get_real_services():
                 
                 # Login to HuggingFace programmatically
                 try:
-                    # Try using huggingface_hub API if available
-                    try:
-                        from huggingface_hub import login
-                        login(token=hf_token)
-                        log(f"✅ HuggingFace login successful (API)", "INFO")
-                    except ImportError:
-                        # Fallback: just set environment variables (often sufficient)
-                        log(f"⚠️ huggingface_hub not available, using env vars only", "WARNING")
-                        pass
+                    # Try using huggingface_hub API (should be available after install)
+                    from huggingface_hub import login
+                    login(token=hf_token)
+                    log(f"✅ HuggingFace programmatic login successful", "INFO")
+                except ImportError as e:
+                    # This shouldn't happen after our install, but fallback gracefully
+                    log(f"⚠️ huggingface_hub import failed: {e} - using env vars only", "WARNING")
                 except Exception as e:
                     # If programmatic login fails, continue with env vars (often sufficient)
-                    log(f"⚠️ HF login warning: {e} - continuing with env vars", "WARNING")
+                    log(f"⚠️ HF programmatic login failed: {e} - env vars will be used", "WARNING")
                 
                 # Setup environment variables
                 env = os.environ.copy()

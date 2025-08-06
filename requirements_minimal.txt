@@ -17,8 +17,9 @@ python-multipart>=0.0.6
 aiofiles>=23.2.1
 psutil>=5.9.6
 
-# Optional: Add these if you want them pre-installed
+# Runtime installations for optimal deployment speed:
 # redis  # NOT NEEDED - RunPod has built-in queue system
+# huggingface_hub[cli]  # Installed at runtime for HF authentication & model downloads
 # boto3  # Installed at runtime for S3 operations
 # asyncio-subprocess  # Installed at runtime
 # torch  # Installed at runtime for faster RunPod cache usage
