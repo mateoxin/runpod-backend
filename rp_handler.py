@@ -673,9 +673,10 @@ async def handle_health_check() -> Dict[str, Any]:
 async def handle_training(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle training request"""
     try:
-        config = job_input.get("config")
+        # Support both 'config' and 'yaml_config' for backward compatibility
+        config = job_input.get("config") or job_input.get("yaml_config")
         if not config:
-            return {"error": "Missing 'config' parameter"}
+            return {"error": "Missing 'config' or 'yaml_config' parameter"}
         
         # Log incoming YAML configuration
         log(f"📝 Training YAML config received (first 500 chars): {str(config)[:500]}...", "INFO")
