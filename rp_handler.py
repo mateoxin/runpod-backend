@@ -211,28 +211,46 @@ def get_real_services():
         def _run_training_background(self, process_id: str, config):
             """Run training in background thread"""
             try:
+                log(f"🚀 Training background thread started: {process_id}", "INFO")
                 update_process_status(process_id, "running")
+                log(f"📊 Process status updated to running: {process_id}", "INFO")
                 
                 # Setup environment
+                log(f"🔧 Setting up environment for: {process_id}", "INFO")
                 hf_token = os.environ.get("HF_TOKEN")
                 if not hf_token:
+                    log(f"❌ HF_TOKEN not found in environment for: {process_id}", "ERROR")
                     raise Exception("HF_TOKEN not found in environment")
                 
+                log(f"✅ HF_TOKEN found for: {process_id}", "INFO")
+                
                 # Create YAML config file
+                log(f"📁 Checking workspace directory for: {process_id}", "INFO")
+                os.makedirs("/workspace", exist_ok=True)
                 config_path = f"/workspace/training_{process_id}.yaml"
+                log(f"💾 Writing YAML config to: {config_path}", "INFO")
                 with open(config_path, 'w') as f:
                     f.write(config)
+                log(f"✅ YAML config written successfully: {process_id}", "INFO")
                 
                 # Log YAML config details
                 log(f"💾 YAML config written to: {config_path}", "INFO")
                 log(f"📄 Full YAML config for {process_id}:\n{config}", "INFO")
                 
-                # Login to HuggingFace
-                login_cmd = ["huggingface-cli", "login", "--token", hf_token]
-                login_result = subprocess.run(login_cmd, capture_output=True, text=True)
-                
-                if login_result.returncode != 0:
-                    raise Exception(f"HF login failed: {login_result.stderr}")
+                # Login to HuggingFace programmatically
+                try:
+                    # Try using huggingface_hub API if available
+                    try:
+                        from huggingface_hub import login
+                        login(token=hf_token)
+                        log(f"✅ HuggingFace login successful (API)", "INFO")
+                    except ImportError:
+                        # Fallback: just set environment variables (often sufficient)
+                        log(f"⚠️ huggingface_hub not available, using env vars only", "WARNING")
+                        pass
+                except Exception as e:
+                    # If programmatic login fails, continue with env vars (often sufficient)
+                    log(f"⚠️ HF login warning: {e} - continuing with env vars", "WARNING")
                 
                 # Setup environment variables
                 env = os.environ.copy()
@@ -245,9 +263,23 @@ def get_real_services():
                     "TRANSFORMERS_CACHE": "/workspace/cache"
                 })
                 
+                # Check if AI toolkit exists
+                ai_toolkit_path = "/workspace/ai-toolkit/run.py"
+                if not os.path.exists(ai_toolkit_path):
+                    raise Exception(f"AI toolkit not found at {ai_toolkit_path}")
+                
+                log(f"🚀 Starting AI toolkit training: {ai_toolkit_path}", "INFO")
+                
                 # Run AI toolkit training
-                cmd = ["python3", "/workspace/ai-toolkit/run.py", config_path]
+                cmd = ["python3", ai_toolkit_path, config_path]
+                log(f"🎯 Training command: {' '.join(cmd)}", "INFO")
                 result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=7200)
+                
+                # Log training output for debugging
+                if result.stdout:
+                    log(f"📋 Training stdout: {result.stdout[:1000]}...", "INFO")
+                if result.stderr:
+                    log(f"❌ Training stderr: {result.stderr[:1000]}...", "ERROR")
                 
                 if result.returncode == 0:
                     # Find output files
