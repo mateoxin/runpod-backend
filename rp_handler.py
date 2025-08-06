@@ -468,17 +468,10 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         
         log(f"📨 Processing job type: {job_type} | Request ID: {request_id}", "INFO")
         
+        # Route to appropriate handler based on job type
         if job_type == "health":
             response = await handle_health_check()
         elif job_type == "train" or job_type == "train_with_yaml":
-            # Handle both train and train_with_yaml
-            if job_type == "train_with_yaml":
-                # Extract yaml_config if provided in train_with_yaml format
-                yaml_config = job_input.get("yaml_config")
-                if yaml_config:
-                    log(f"📄 train_with_yaml: Received YAML config (first 300 chars): {str(yaml_config)[:300]}...", "INFO")
-                    # Convert to standard format for handle_training
-                    job_input["config"] = yaml_config
             response = await handle_training(job_input)
         elif job_type == "generate":
             response = await handle_generation(job_input)
@@ -781,12 +774,31 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
             f.write(f"Total Images: {image_count}\n")
             f.write(f"Total Captions: {caption_count}\n")
         
+        # Get RunPod environment information
+        worker_id = os.environ.get("RUNPOD_WORKER_ID", "local")
+        pod_id = os.environ.get("RUNPOD_POD_ID", "local")
+        endpoint_id = os.environ.get("RUNPOD_ENDPOINT_ID", None)
+        
+        # Create RunPod-specific paths for uploaded files
+        for file_data in uploaded_files:
+            # Add RunPod workspace relative path
+            relative_path = file_data["path"].replace(workspace_path, "").lstrip("/")
+            file_data["runpod_workspace_path"] = f"/workspace/{relative_path}"
+            file_data["runpod_relative_path"] = relative_path
+        
         response_data = {
             "uploaded_files": uploaded_files,
             "training_folder": training_folder,
             "total_images": image_count,
             "total_captions": caption_count,
-            "message": f"Successfully uploaded {len(uploaded_files)} files to {training_folder}"
+            "message": f"Successfully uploaded {len(uploaded_files)} files to {training_folder}",
+            "runpod_info": {
+                "worker_id": worker_id,
+                "pod_id": pod_id,
+                "endpoint_id": endpoint_id,
+                "workspace_path": workspace_path,
+                "training_folder_relative": training_folder.replace(workspace_path, "").lstrip("/")
+            }
         }
         
         log(f"✅ Training data uploaded: {training_folder} ({image_count} images, {caption_count} captions)", "INFO")
