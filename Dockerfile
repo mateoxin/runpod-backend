@@ -1,27 +1,19 @@
 # 🚀 RunPod FastBackend Dockerfile
 # Optimized for quick deployment and runtime setup
 # Based on successful runpod-fastbackend/ approach - FLAT STRUCTURE
+# Using RunPod PyTorch template with CUDA support
 
-FROM python:3.11.1-slim
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
 
 # Set working directory
 WORKDIR /
 
-# Install system dependencies including build tools for C compilation
-# build-essential, gcc, g++, make are required for bitsandbytes/triton compilation
+# Install additional system dependencies (build tools already included in RunPod template)
 RUN apt-get update && apt-get install -y \
     git \
     curl \
-    build-essential \
-    gcc \
-    g++ \
-    make \
     libgl1-mesa-glx \
     libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install minimal dependencies
