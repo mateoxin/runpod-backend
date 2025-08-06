@@ -148,7 +148,102 @@ def setup_environment():
         except Exception as e:
             log(f"⚠️ Dependency install warning: {e}, continuing...", "WARN")
         
-        log("✅ Minimal environment ready!", "INFO")
+        # Step 4: Upgrade pip
+        log("📦 Upgrading pip...", "INFO")
+        try:
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", "--upgrade", "pip"
+            ], capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0:
+                log("✅ Pip upgraded successfully", "INFO")
+            else:
+                log(f"⚠️ Pip upgrade failed: {result.stderr}", "WARN")
+        except Exception as e:
+            log(f"⚠️ Pip upgrade warning: {e}", "WARN")
+        
+        # Step 5: Clone ai-toolkit if not exists
+        ai_toolkit_path = "/workspace/ai-toolkit"
+        if not os.path.exists(ai_toolkit_path):
+            log("📥 Cloning ai-toolkit...", "INFO")
+            try:
+                # Change to workspace directory first
+                os.chdir("/workspace")
+                result = subprocess.run([
+                    "git", "clone", "https://github.com/ostris/ai-toolkit.git"
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode == 0:
+                    log("✅ AI-toolkit cloned successfully", "INFO")
+                else:
+                    log(f"❌ AI-toolkit clone failed: {result.stderr}", "ERROR")
+                    return False
+            except Exception as e:
+                log(f"❌ AI-toolkit clone error: {e}", "ERROR")
+                return False
+        else:
+            log("✅ AI-toolkit already exists", "INFO")
+        
+        # Step 6: Install ai-toolkit requirements
+        ai_toolkit_requirements = "/workspace/ai-toolkit/requirements.txt"
+        if os.path.exists(ai_toolkit_requirements):
+            log("📦 Installing ai-toolkit requirements...", "INFO")
+            try:
+                # Change to ai-toolkit directory first
+                os.chdir("/workspace/ai-toolkit")
+                result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", "-r", "requirements.txt"
+                ], capture_output=True, text=True, timeout=600)
+                
+                if result.returncode == 0:
+                    log("✅ AI-toolkit requirements installed", "INFO")
+                else:
+                    log(f"⚠️ AI-toolkit requirements install warning: {result.stderr}", "WARN")
+            except Exception as e:
+                log(f"⚠️ AI-toolkit requirements install warning: {e}", "WARN")
+        else:
+            log("⚠️ AI-toolkit requirements.txt not found", "WARN")
+        
+        # Step 7: Install additional python-dotenv for ai-toolkit
+        log("📦 Installing python-dotenv for ai-toolkit...", "INFO")
+        try:
+            os.chdir("/workspace/ai-toolkit")
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", "python-dotenv"
+            ], capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0:
+                log("✅ Python-dotenv installed", "INFO")
+            else:
+                log(f"⚠️ Python-dotenv install warning: {result.stderr}", "WARN")
+        except Exception as e:
+            log(f"⚠️ Python-dotenv install warning: {e}", "WARN")
+        
+        # Step 8: Install essential ML packages
+        log("📦 Installing essential ML packages...", "INFO")
+        ml_packages = [
+            "albumentations",
+            "diffusers", 
+            "transformers",
+            "accelerate",
+            "peft"
+        ]
+        
+        for package in ml_packages:
+            try:
+                log(f"📦 Installing {package}...", "INFO")
+                result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", "--upgrade", package
+                ], capture_output=True, text=True, timeout=180)
+                
+                if result.returncode == 0:
+                    log(f"✅ {package} installed successfully", "INFO")
+                else:
+                    log(f"⚠️ {package} install warning: {result.stderr}", "WARN")
+            except Exception as e:
+                log(f"⚠️ {package} install warning: {e}", "WARN")
+        
+        log("✅ Complete environment setup ready!", "INFO")
         ENVIRONMENT_READY = True
         return True
         
