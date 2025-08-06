@@ -835,21 +835,29 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
         if not files_data:
             return {"error": "No files provided"}
         
-        # Create unique training folder
-        training_id = str(uuid.uuid4())[:8]
-        safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in training_name)
+        # ZMIENIONE: Upload bezpośrednio do /workspace/training_data (bez subfolderów)
         workspace_path = os.environ.get("WORKSPACE_PATH", "/workspace")
-        training_folder = os.path.join(workspace_path, "training_data", f"{safe_name}_{training_id}")
+        training_folder = os.path.join(workspace_path, "training_data")  # Bezpośrednio do głównego folderu
         
-        # Clean up existing training data if requested
+        # ULEPSZONE: Wyczyść wszystkie istniejące pliki (nie tylko foldery)
         if cleanup_existing:
-            base_training_path = os.path.join(workspace_path, "training_data")
-            if os.path.exists(base_training_path):
-                for item in os.listdir(base_training_path):
-                    old_path = os.path.join(base_training_path, item)
-                    if os.path.isdir(old_path):
-                        shutil.rmtree(old_path)
-                        logger.info(f"Cleaned up old training data: {old_path}")
+            if os.path.exists(training_folder):
+                log(f"🧹 Czyszczenie istniejących plików w {training_folder}", "INFO")
+                
+                # Usuń wszystkie pliki w folderze
+                for item in os.listdir(training_folder):
+                    item_path = os.path.join(training_folder, item)
+                    try:
+                        if os.path.isfile(item_path):
+                            os.remove(item_path)
+                            log(f"   🗑️  Usunięto plik: {item}", "INFO")
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                            log(f"   🗑️  Usunięto folder: {item}", "INFO")
+                    except Exception as e:
+                        log(f"   ⚠️  Błąd usuwania {item}: {e}", "WARN")
+                
+                log(f"✅ Folder wyczyszczony: {training_folder}", "INFO")
         
         # Create training folder
         os.makedirs(training_folder, exist_ok=True)
