@@ -486,12 +486,35 @@ def get_real_services():
             return "healthy"
         
         async def get_download_url(self, process_id):
-            """Generate download URL for process output"""
+            """Generate download URL/data for process output"""
             process = get_process(process_id)
-            if process and process.get("output_path"):
-                # In real implementation, this would generate a signed URL
-                return f"/download/{process_id}"
-            return None
+            if not process or not process.get("output_path"):
+                return None
+            
+            output_path = process.get("output_path")
+            
+            try:
+                # In RunPod Serverless, we need to return file as base64 data
+                if os.path.exists(output_path):
+                    with open(output_path, 'rb') as file:
+                        file_data = file.read()
+                        file_base64 = base64.b64encode(file_data).decode('utf-8')
+                        
+                        # Return download data instead of URL
+                        return {
+                            "type": "file_data",
+                            "filename": os.path.basename(output_path),
+                            "data": file_base64,
+                            "size": len(file_data),
+                            "content_type": "application/octet-stream"
+                        }
+                else:
+                    log(f"❌ File not found: {output_path}", "ERROR")
+                    return None
+                    
+            except Exception as e:
+                log(f"❌ Error reading file {output_path}: {e}", "ERROR")
+                return None
         
         async def list_files(self, path):
             """List files in directory"""
@@ -519,7 +542,27 @@ def get_real_services():
                 output_dir = "/workspace/output"
                 if os.path.exists(output_dir):
                     models = glob.glob(f"{output_dir}/**/*.safetensors", recursive=True)
-                    return [os.path.basename(model) for model in models]
+                    model_list = []
+                    for model_path in models:
+                        filename = os.path.basename(model_path)
+                        try:
+                            stat = os.stat(model_path)
+                            size_mb = round(stat.st_size / (1024 * 1024), 1)
+                            modified_date = datetime.fromtimestamp(stat.st_mtime).isoformat()
+                        except:
+                            size_mb = 0
+                            modified_date = datetime.now().isoformat()
+                        
+                        model_list.append({
+                            "id": filename.replace('.safetensors', ''),
+                            "filename": filename,
+                            "name": filename.replace('.safetensors', ''),
+                            "path": model_path,
+                            "size_mb": size_mb,
+                            "modified_date": modified_date,
+                            "status": "ready"
+                        })
+                    return model_list
                 return []
             except Exception as e:
                 log(f"❌ Error listing LoRA models: {e}", "ERROR")
@@ -783,7 +826,12 @@ async def handle_get_processes(job_input: Dict[str, Any]) -> Dict[str, Any]:
         else:
             log("📭 No processes found in system", "INFO")
         
-        return {"processes": processes}
+        return {
+            "processes": processes,
+            "worker_id": os.environ.get('RUNPOD_POD_ID', 'local'),
+            "environment": "serverless",
+            "note": "Processes are isolated per serverless worker instance"
+        }
     except Exception as e:
         log(f"❌ Get processes error: {e}", "ERROR")
         return {"error": f"Failed to get processes: {str(e)}"}
@@ -840,7 +888,7 @@ async def handle_cancel_process(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Failed to cancel process: {str(e)}"}
 
 async def handle_download_url(job_input: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle download URL request"""
+    """Handle download request - returns file data as base64"""
     try:
         process_id = job_input.get("process_id")
         if not process_id:
@@ -860,13 +908,18 @@ async def handle_download_url(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if not _storage_service:
             return {"error": "Storage service not initialized"}
             
-        # Get download URL
-        url = await _storage_service.get_download_url(process_id)
+        # Get download data (now returns file data instead of URL)
+        download_data = await _storage_service.get_download_url(process_id)
         
-        return {"url": url}
+        if download_data:
+            log(f"✅ Download prepared for process {process_id}: {download_data['filename']} ({format_file_size(download_data['size'])})", "INFO")
+            return download_data
+        else:
+            return {"error": "No download data available for this process"}
+            
     except Exception as e:
-        log(f"❌ Download URL error: {e}", "ERROR")
-        return {"error": f"Failed to get download URL: {str(e)}"}
+        log(f"❌ Download error: {e}", "ERROR")
+        return {"error": f"Failed to prepare download: {str(e)}"}
 
 async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
     """Handle training data upload request"""
@@ -915,14 +968,22 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
         uploaded_files = []
         image_count = 0
         caption_count = 0
+        total_files_attempted = len(files_data)
+        total_files_failed = 0
+        
+        log(f"🚀 Processing {total_files_attempted} files for upload | Request ID: {request_id}", "INFO")
         
         # Process files (expecting base64 encoded files)
-        for file_info in files_data:
+        for i, file_info in enumerate(files_data):
             filename = file_info.get("filename")
             content = file_info.get("content")  # base64 encoded
             content_type = file_info.get("content_type", "application/octet-stream")
             
+            log(f"📁 Processing file {i+1}/{total_files_attempted}: {filename} | Request ID: {request_id}", "INFO")
+            
             if not filename or not content:
+                log(f"⚠️ Skipping file {i+1}: missing filename or content | Request ID: {request_id}", "WARN")
+                total_files_failed += 1
                 continue
                 
             # Save file to training folder
@@ -941,30 +1002,49 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 
+                # Determine file type
+                file_type = "other"
+                if content_type and content_type.startswith('image/'):
+                    file_type = "image"
+                elif filename.endswith('.txt'):
+                    file_type = "caption"
+                
                 file_data = {
                     "filename": filename,
                     "path": file_path,
                     "size": len(file_content),
                     "size_formatted": format_file_size(len(file_content)),
                     "content_type": content_type,
-                    "file_type": "image" if content_type and content_type.startswith('image/') else ("caption" if filename.endswith('.txt') else "other"),
+                    "file_type": file_type,
                     "uploaded_at": datetime.now().isoformat(),
                     "folder": "training_data"
                 }
                 uploaded_files.append(file_data)
                 
                 # Enhanced log file operation with more details
-                log(f"📁 File uploaded: {filename} | Size: {file_data['size_formatted']} | Type: {file_data['file_type']} | Folder: training_data | Request ID: {request_id}", "INFO")
+                log(f"✅ File uploaded: {filename} | Size: {file_data['size_formatted']} | Type: {file_type} | Folder: training_data | Request ID: {request_id}", "INFO")
                 
-                # Count file types
-                if content_type and content_type.startswith('image/'):
+                # Count file types - CRITICAL: This is now inside the successful processing block
+                if file_type == "image":
                     image_count += 1
-                elif filename.endswith('.txt'):
+                    log(f"📷 Image count incremented to: {image_count} | Request ID: {request_id}", "INFO")
+                elif file_type == "caption":
                     caption_count += 1
+                    log(f"📝 Caption count incremented to: {caption_count} | Request ID: {request_id}", "INFO")
                     
             except Exception as e:
                 log(f"❌ Failed to process file {filename} | Request ID: {request_id} | Error: {e}", "ERROR")
+                total_files_failed += 1
                 continue
+        
+        # Final upload summary with debugging info
+        log(f"📊 Upload summary | Request ID: {request_id} | Total attempted: {total_files_attempted} | Succeeded: {len(uploaded_files)} | Failed: {total_files_failed} | Images: {image_count} | Captions: {caption_count}", "INFO")
+        
+        # CRITICAL DEBUG: Warn if all files failed (this causes "undefined" in frontend)
+        if total_files_failed == total_files_attempted:
+            log(f"🚨 WARNING: ALL files failed to upload! This will show undefined counts in frontend | Request ID: {request_id}", "WARN")
+        elif image_count == 0 and caption_count == 0:
+            log(f"🚨 WARNING: No images or captions were successfully processed | Request ID: {request_id}", "WARN")
         
         # Create trigger word info file
         trigger_file = os.path.join(training_folder, "_training_info.txt")
@@ -1008,6 +1088,13 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
             "file_types_summary": file_types_summary,
             "message": f"✅ Successfully uploaded {len(uploaded_files)} files ({total_size_formatted}) to training_data folder",
             "detailed_message": f"📁 Uploaded to training_data folder:\n📷 {image_count} images\n📝 {caption_count} captions\n💾 Total size: {total_size_formatted}",
+            "debug_info": {
+                "total_files_attempted": total_files_attempted,
+                "total_files_succeeded": len(uploaded_files),
+                "total_files_failed": total_files_failed,
+                "all_files_failed": total_files_failed == total_files_attempted,
+                "no_valid_content": image_count == 0 and caption_count == 0
+            },
             "runpod_info": {
                 "worker_id": worker_id,
                 "pod_id": pod_id,
@@ -1080,6 +1167,7 @@ async def handle_bulk_download(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "total_size": total_size
         }
         
+        log(f"✅ Bulk download prepared: {len(download_items)} files ({format_file_size(total_size)})", "INFO")
         return response_data
         
     except Exception as e:
