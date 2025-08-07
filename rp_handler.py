@@ -45,6 +45,14 @@ def log(message, level="INFO"):
     print(log_msg)
     sys.stdout.flush()
 
+def format_file_size(bytes_size: int) -> str:
+    """Format file size in human readable format"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.1f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.1f} TB"
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -538,6 +546,7 @@ async def initialize_services():
     global _services_initialized, _services, _gpu_manager, _process_manager, _storage_service, _lora_service
     
     if _services_initialized:
+        log("🔄 Services already initialized, skipping setup", "INFO")
         return
     
     try:
@@ -568,6 +577,9 @@ async def initialize_services():
         
         _services_initialized = True
         log("✅ Real AI services ready for training and generation!", "INFO")
+        
+        # Log service status for debugging
+        log(f"🔧 Service status: GPU Manager: {'✅' if _gpu_manager else '❌'} | Process Manager: {'✅' if _process_manager else '❌'} | Storage: {'✅' if _storage_service else '❌'} | LoRA: {'✅' if _lora_service else '❌'}", "INFO")
         
     except Exception as e:
         log(f"❌ Failed to initialize services: {e}", "ERROR")
@@ -605,6 +617,14 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         request_id = f"req_{int(time.time() * 1000)}"
         log(f"📨 Incoming {job_type or 'unknown'} request | Request ID: {request_id}", "INFO")
         
+        # Enhanced request logging
+        if job_type == "processes":
+            log(f"🔍 GET PROCESSES request detected - retrieving process list | Request ID: {request_id}", "INFO")
+        elif job_type == "train":
+            log(f"🎯 TRAINING request detected - will start new training | Request ID: {request_id}", "INFO")
+        elif job_type == "generate":
+            log(f"🖼️ GENERATION request detected - will start new generation | Request ID: {request_id}", "INFO")
+        
         log(f"📨 Processing job type: {job_type} | Request ID: {request_id}", "INFO")
         
         # Route to appropriate handler based on job type
@@ -634,9 +654,18 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
                 "supported_types": ["health", "train", "train_with_yaml", "generate", "processes", "process_status", "lora", "list_models", "cancel", "download", "upload_training_data", "bulk_download"]
             }
         
-        # Log successful response
+        # Log successful response with timing
         status = "success" if not response.get("error") else "error"
-        log(f"✅ Request completed: {status} | Request ID: {request_id}", "INFO")
+        end_time = time.time()
+        start_time = int(request_id.split('_')[1]) / 1000  # Extract timestamp from request_id
+        duration = end_time - start_time
+        
+        log(f"✅ Request completed: {status} | Duration: {duration:.3f}s | Request ID: {request_id}", "INFO")
+        
+        # Additional response details for debugging
+        if job_type == "processes" and status == "success":
+            process_count = len(response.get("processes", []))
+            log(f"📊 Processes response: {process_count} processes returned | Request ID: {request_id}", "INFO")
         
         return response
             
@@ -730,9 +759,30 @@ async def handle_get_processes(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle get processes request"""
     try:
         if not _process_manager:
+            log("❌ Process manager not initialized for get_processes request", "ERROR")
             return {"error": "Process manager not initialized"}
         
         processes = await _process_manager.get_all_processes()
+        
+        # Enhanced logging for debugging
+        log(f"📊 Retrieved {len(processes)} total processes", "INFO")
+        
+        if processes:
+            # Count processes by status
+            status_counts = {}
+            for process in processes:
+                status = process.get('status', 'unknown')
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            log(f"📋 Process status breakdown: {status_counts}", "INFO")
+            
+            # Log recent processes (last 3)
+            recent_processes = sorted(processes, key=lambda x: x.get('created_at', ''), reverse=True)[:3]
+            for i, process in enumerate(recent_processes):
+                log(f"📄 Recent process {i+1}: {process.get('id', 'unknown')} | Type: {process.get('type', 'unknown')} | Status: {process.get('status', 'unknown')}", "INFO")
+        else:
+            log("📭 No processes found in system", "INFO")
+        
         return {"processes": processes}
     except Exception as e:
         log(f"❌ Get processes error: {e}", "ERROR")
@@ -895,13 +945,16 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                     "filename": filename,
                     "path": file_path,
                     "size": len(file_content),
+                    "size_formatted": format_file_size(len(file_content)),
                     "content_type": content_type,
-                    "uploaded_at": datetime.now().isoformat()
+                    "file_type": "image" if content_type and content_type.startswith('image/') else ("caption" if filename.endswith('.txt') else "other"),
+                    "uploaded_at": datetime.now().isoformat(),
+                    "folder": "training_data"
                 }
                 uploaded_files.append(file_data)
                 
-                # Log file operation
-                log(f"📁 File uploaded: {filename} | Size: {file_data['size']} bytes | Request ID: {request_id}", "INFO")
+                # Enhanced log file operation with more details
+                log(f"📁 File uploaded: {filename} | Size: {file_data['size_formatted']} | Type: {file_data['file_type']} | Folder: training_data | Request ID: {request_id}", "INFO")
                 
                 # Count file types
                 if content_type and content_type.startswith('image/'):
@@ -934,12 +987,27 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
             file_data["runpod_workspace_path"] = f"/workspace/{relative_path}"
             file_data["runpod_relative_path"] = relative_path
         
+        # Calculate total size
+        total_size = sum(file_data["size"] for file_data in uploaded_files)
+        total_size_formatted = format_file_size(total_size)
+        
+        # Create detailed file summary
+        file_types_summary = {
+            "images": [f for f in uploaded_files if f["file_type"] == "image"],
+            "captions": [f for f in uploaded_files if f["file_type"] == "caption"],
+            "other": [f for f in uploaded_files if f["file_type"] == "other"]
+        }
+        
         response_data = {
             "uploaded_files": uploaded_files,
             "training_folder": training_folder,
             "total_images": image_count,
             "total_captions": caption_count,
-            "message": f"Successfully uploaded {len(uploaded_files)} files to {training_folder}",
+            "total_size": total_size,
+            "total_size_formatted": total_size_formatted,
+            "file_types_summary": file_types_summary,
+            "message": f"✅ Successfully uploaded {len(uploaded_files)} files ({total_size_formatted}) to training_data folder",
+            "detailed_message": f"📁 Uploaded to training_data folder:\n📷 {image_count} images\n📝 {caption_count} captions\n💾 Total size: {total_size_formatted}",
             "runpod_info": {
                 "worker_id": worker_id,
                 "pod_id": pod_id,
