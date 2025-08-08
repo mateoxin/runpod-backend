@@ -541,22 +541,35 @@ def get_real_services():
             try:
                 output_dir = "/workspace/output"
                 if os.path.exists(output_dir):
-                    models = glob.glob(f"{output_dir}/**/*.safetensors", recursive=True)
+                    # Support multiple LoRA model extensions
+                    lora_patterns = [
+                        "**/*.safetensors",
+                        "**/*.ckpt",
+                        "**/*.pt",
+                        "**/*.pth"
+                    ]
+                    model_paths = []
+                    for pattern in lora_patterns:
+                        model_paths.extend(glob.glob(f"{output_dir}/{pattern}", recursive=True))
+
                     model_list = []
-                    for model_path in models:
+                    for model_path in model_paths:
                         filename = os.path.basename(model_path)
                         try:
                             stat = os.stat(model_path)
                             size_mb = round(stat.st_size / (1024 * 1024), 1)
                             modified_date = datetime.fromtimestamp(stat.st_mtime).isoformat()
-                        except:
+                        except Exception:
                             size_mb = 0
                             modified_date = datetime.now().isoformat()
-                        
+
+                        # Derive a generic id/name without extension
+                        base_name = os.path.splitext(filename)[0]
+
                         model_list.append({
-                            "id": filename.replace('.safetensors', ''),
+                            "id": base_name,
                             "filename": filename,
-                            "name": filename.replace('.safetensors', ''),
+                            "name": base_name,
                             "path": model_path,
                             "size_mb": size_mb,
                             "modified_date": modified_date,
@@ -691,10 +704,14 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             response = await handle_upload_training_data(job_input, request_id)
         elif job_type == "bulk_download":
             response = await handle_bulk_download(job_input)
+        elif job_type == "list_files":
+            response = await handle_list_files(job_input)
+        elif job_type == "download_file":
+            response = await handle_download_file(job_input)
         else:
             response = {
                 "error": f"Unknown job type: {job_type}",
-                "supported_types": ["health", "train", "train_with_yaml", "generate", "processes", "process_status", "lora", "list_models", "cancel", "download", "upload_training_data", "bulk_download"]
+                "supported_types": ["health", "train", "train_with_yaml", "generate", "processes", "process_status", "lora", "list_models", "cancel", "download", "upload_training_data", "bulk_download", "list_files", "download_file"]
             }
         
         # Log successful response with timing
@@ -1002,12 +1019,21 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                 with open(file_path, "wb") as f:
                     f.write(file_content)
                 
-                # Determine file type
+                # Determine file type - improved logic to check both content_type and file extension
                 file_type = "other"
-                if content_type and content_type.startswith('image/'):
+                
+                # Check for images: content_type OR file extension
+                is_image_by_content = content_type and content_type.startswith('image/')
+                is_image_by_extension = any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'])
+                
+                if is_image_by_content or is_image_by_extension:
                     file_type = "image"
-                elif filename.endswith('.txt'):
+                    log(f"🖼️ File recognized as image: {filename} | Content-type: {content_type} | By content: {is_image_by_content} | By extension: {is_image_by_extension} | Request ID: {request_id}", "INFO")
+                elif filename.lower().endswith('.txt'):
                     file_type = "caption"
+                    log(f"📝 File recognized as caption: {filename} | Request ID: {request_id}", "INFO")
+                else:
+                    log(f"❓ File type not recognized: {filename} | Content-type: {content_type} | Request ID: {request_id}", "WARN")
                 
                 file_data = {
                     "filename": filename,
@@ -1173,6 +1199,145 @@ async def handle_bulk_download(job_input: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         log(f"❌ Bulk download error: {e}", "ERROR")
         return {"error": f"Failed to create bulk download: {str(e)}"}
+
+async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle list all generated files request"""
+    try:
+        if not _storage_service or not _lora_service:
+            return {"error": "Services not initialized"}
+        
+        log("📁 Listing all generated files...", "INFO")
+        
+        # Get LoRA models
+        lora_models = await _lora_service.get_available_models()
+        lora_files = []
+        
+        for model in lora_models:
+            lora_files.append({
+                "id": model.get("id"),
+                "filename": model.get("filename"),
+                "path": model.get("path"),
+                "size": model.get("size_mb", 0) * 1024 * 1024 if model.get("size_mb") else 0,  # Convert MB to bytes
+                "size_formatted": f"{model.get('size_mb', 0)} MB",
+                "created_at": model.get("modified_date"),
+                "type": "lora"
+            })
+        
+        # Get generated images from output directories
+        image_files = []
+        output_dirs = [
+            "/workspace/generated_images",
+            "/workspace/output/generated",
+            "/workspace/output",
+            "/workspace/results"
+        ]
+        
+        for output_dir in output_dirs:
+            if os.path.exists(output_dir):
+                try:
+                    # Look for image files
+                    image_patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
+                    for pattern in image_patterns:
+                        image_paths = glob.glob(f"{output_dir}/**/{pattern}", recursive=True)
+                        for image_path in image_paths:
+                            try:
+                                stat = os.stat(image_path)
+                                size_bytes = stat.st_size
+                                size_formatted = format_file_size(size_bytes)
+                                
+                                # Try to extract process_id from path/filename
+                                filename = os.path.basename(image_path)
+                                process_id = None
+                                if "generated_" in filename:
+                                    parts = filename.split("_")
+                                    if len(parts) > 1:
+                                        process_id = parts[1].split(".")[0]
+                                
+                                image_files.append({
+                                    "id": f"img_{os.path.basename(image_path).split('.')[0]}",
+                                    "filename": filename,
+                                    "path": image_path,
+                                    "size": size_bytes,
+                                    "size_formatted": size_formatted,
+                                    "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                    "type": "image",
+                                    "process_id": process_id
+                                })
+                            except Exception as e:
+                                log(f"❌ Error processing image file {image_path}: {e}", "ERROR")
+                                continue
+                except Exception as e:
+                    log(f"❌ Error scanning directory {output_dir}: {e}", "ERROR")
+                    continue
+        
+        result = {
+            "lora_files": lora_files,
+            "image_files": image_files,
+            "total_files": len(lora_files) + len(image_files)
+        }
+        
+        log(f"✅ Found {len(lora_files)} LoRA files and {len(image_files)} image files", "INFO")
+        return result
+        
+    except Exception as e:
+        log(f"❌ List files error: {e}", "ERROR")
+        return {"error": f"Failed to list files: {str(e)}"}
+
+async def handle_download_file(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle direct file download by path"""
+    try:
+        file_path = job_input.get("file_path")
+        if not file_path:
+            return {"error": "file_path parameter required"}
+        
+        log(f"📥 Downloading file: {file_path}", "INFO")
+        
+        # Security check - ensure file path is within workspace
+        if not file_path.startswith("/workspace/"):
+            return {"error": "Access denied: file must be in workspace"}
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return {"error": f"File not found: {file_path}"}
+        
+        try:
+            # Read file and return as base64
+            with open(file_path, 'rb') as file:
+                file_data = file.read()
+                file_base64 = base64.b64encode(file_data).decode('utf-8')
+                
+                # Determine content type based on file extension
+                content_type = "application/octet-stream"
+                ext = os.path.splitext(file_path)[1].lower()
+                content_type_map = {
+                    '.png': 'image/png',
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.webp': 'image/webp',
+                    '.safetensors': 'application/octet-stream',
+                    '.pt': 'application/octet-stream',
+                    '.pth': 'application/octet-stream'
+                }
+                content_type = content_type_map.get(ext, content_type)
+                
+                result = {
+                    "type": "file_data",
+                    "filename": os.path.basename(file_path),
+                    "data": file_base64,
+                    "size": len(file_data),
+                    "content_type": content_type
+                }
+                
+                log(f"✅ File download prepared: {os.path.basename(file_path)} ({format_file_size(len(file_data))})", "INFO")
+                return result
+                
+        except Exception as e:
+            log(f"❌ Error reading file {file_path}: {e}", "ERROR")
+            return {"error": f"Failed to read file: {str(e)}"}
+        
+    except Exception as e:
+        log(f"❌ Download file error: {e}", "ERROR")
+        return {"error": f"Failed to download file: {str(e)}"}
 
 # Start RunPod Serverless
 if __name__ == "__main__":
