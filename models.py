@@ -5,7 +5,7 @@ Ensures type safety and validation for all API inputs/outputs
 """
 
 from pydantic import BaseModel, Field, validator, ConfigDict
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List, Literal, Union
 from datetime import datetime
 import yaml
 import base64
@@ -264,4 +264,4 @@ class ProcessInfo(BaseModel):
     worker_id: Optional[str] = None
     metrics: Optional[Dict[str, Any]] = None
 
-from typing import Union
+ 
