@@ -2503,6 +2503,5 @@ async def handle_download_by_key(job_input: Dict[str, Any]) -> Dict[str, Any]:
 if __name__ == "__main__":
     log("🚀 Starting LoRA Dashboard RunPod Serverless Handler", "INFO")
     runpod.serverless.start({
-        "handler": async_handler,  # ✅ Bezpośrednio async handler
-        "return_aggregate_stream": True
-    }) 
+        "handler": async_handler  # ✅ Direct async handler
+    })
