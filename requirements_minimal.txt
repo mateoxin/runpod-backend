@@ -6,8 +6,6 @@ runpod>=1.7.0
 pyyaml>=6.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-fastapi>=0.104.1
-uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 httpx>=0.25.0
@@ -18,12 +16,5 @@ aiofiles>=23.2.1
 psutil>=5.9.6
 boto3>=1.34.0
 
-# Runtime installations for optimal deployment speed:
-# redis  # NOT NEEDED - RunPod has built-in queue system
-# huggingface_hub[cli]  # Installed at runtime for HF authentication & model downloads
-# asyncio-subprocess  # Installed at runtime
-# torch  # Installed at runtime for faster RunPod cache usage
-# transformers  # Installed at runtime  
-# diffusers  # Installed at runtime
-# accelerate  # Installed at runtime
-# bitsandbytes  # Installed at runtime
+# Runtime installations for optimal deployment speed (installed at runtime):
+# torch, transformers, diffusers, accelerate, huggingface_hub[cli]

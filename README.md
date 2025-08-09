@@ -1,14 +1,14 @@
-# 🚀 LoRA Dashboard Backend
+# 🚀 LoRA Dashboard Backend (RunPod Serverless)
 
-FastAPI backend for LoRA Dashboard - Serverless Training & Generation Suite
-Optimized for RunPod deployment with fast startup times.
+Serverless handler for LoRA Dashboard — training and generation on RunPod with fast cold‑start and S3 storage. No FastAPI server is used; the worker is started via `runpod.serverless.start` and communicates through RunPod input/output payloads.
 
 ## 🎯 Features
 
-- **Ultra-Fast Deployment**: ~30 seconds instead of 20 minutes
-- **Runtime Setup**: Heavy dependencies installed at runtime using RunPod cache  
-- **Unified Logging**: stdout/stderr output for maximum RunPod visibility
-- **Git Deploy Ready**: Optimized for deployment from Git repositories
+- **Ultra‑fast deployment**: ~30–60s cold‑start, ciężkie biblioteki dogrywane w runtime z cache RunPod
+- **Serverless (Dockerless) ready**: pracuje świetnie z RunPod Projects (repo GitHub → Endpoint)
+- **S3 jako source of truth**: upload datasetów, wyniki i statusy procesów przez S3 (presigned URLs)
+- **Cross‑worker visibility**: statusy procesów z S3 widoczne między workerami
+- **Bezpośrednie logowanie**: stdout/stderr dla maksymalnej widoczności w RunPod
 
 ## 🚀 Quick Start
 
@@ -21,54 +21,49 @@ Optimized for RunPod deployment with fast startup times.
 # Activate virtual environment  
 source venv/bin/activate
 
-# Start RunPod handler
+# Start RunPod handler (local run for smoke tests)
 python rp_handler.py
 ```
 
-### RunPod Deployment
+### RunPod Deployment (Projects — Dockerless, z GitHub)
 
-1. **From Git Repository** (Recommended):
-   ```bash
-   # Use this repository URL in RunPod endpoint configuration
-   https://github.com/your-username/your-repo.git
-   ```
-
-2. **Manual Docker**:
-   ```bash
-   docker build -t lora-backend .
-   docker run -p 8000:8000 lora-backend
-   ```
+1) W konsoli RunPod utwórz Project i podepnij repo (Gałąź: `main`).
+2) Utwórz Endpoint z Project, wybierz GPU, Workers.
+3) Ustaw zmienne środowiskowe (sekcje poniżej). Sekrety podaj jako Secrets.
+4) W `Test Input` używaj formatu `{"input": { ... }}` (przykłady niżej).
+5) Deploy. Worker uruchamia `rp_handler.py` i nasłuchuje przez RunPod API.
 
 ## 📁 Project Structure
 
 ```
 Backend/
-├── rp_handler.py              # RunPod serverless handler (all-in-one)
+├── rp_handler.py              # RunPod serverless handler (entrypoint)
+├── storage_utils.py           # S3 manager (batch, multipart, presigned URLs)
+├── models.py                  # Pydantic modele walidacji inputu
+├── utils.py                   # GPU utils, retry, metrics, path safety
 ├── requirements_minimal.txt   # Minimal dependencies for fast startup
-├── Dockerfile                 # Optimized for quick builds
-├── startup.sh                 # Environment startup script
+├── Dockerfile                 # (opcjonalnie) pod dockerowy deploy
+├── startup.sh                 # (opcjonalnie) przykład ENV pod docker
 ├── setup_env.sh               # Local development setup
 ├── config.env.template        # Configuration template
 └── runpod.yaml                # RunPod deployment configuration
 ```
 
-## 🔧 Configuration
+## 🔧 Configuration (ENV)
 
 1. Copy configuration template:
    ```bash
    cp config.env.template config.env
    ```
 
-2. Edit `config.env` with your settings:
-   ```bash
-   # HuggingFace Token (set via RunPod environment variables)
-   HF_TOKEN=your_huggingface_token
-   
-   # Environment (auto-configured)
-   WORKSPACE_PATH=/workspace
-   ```
+Ustaw w Endpoint → Variables/Secrets:
 
-## 🧪 Testing
+- `HF_TOKEN` (Secret) — token HuggingFace
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (Secrets) — dostęp do S3 kompatybilnego
+- `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_PREFIX` — konfiguracja storage (np. `tqv92ffpc5`, `eu-ro-1`, `https://s3api-eu-ro-1.runpod.io`, `lora-dashboard`)
+- (opcjonalnie) `TRAINING_TIMEOUT`, `GENERATION_TIMEOUT`, `MAX_RETRIES`
+
+## 🧪 Testing (local smoke)
 
 Test specific components:
 ```bash
@@ -82,49 +77,55 @@ python rp_handler.py
 python -c "import rp_handler"
 ```
 
-## 📊 Deployment Approach
+## 📦 Payloads i wyniki
 
-### Fast Deployment Strategy
-- **Minimal Docker Image**: Only essential packages in Dockerfile
-- **Runtime Setup**: Heavy ML libraries installed when needed
-- **RunPod Cache**: Leverages RunPod's package cache for faster installs
-- **Lazy Loading**: Services imported only when required
-
-### Traditional vs Fast Deployment
-| Aspect | Traditional | Fast Approach |
-|--------|-------------|---------------|
-| Build Time | 15-20 minutes | 30-60 seconds |
-| Image Size | 5-8 GB | 500MB-1GB |
-| Startup Time | 2-3 minutes | 30-60 seconds |
-| Cache Usage | Limited | Full RunPod cache |
+- Limity payload (RunPod): `run` 10 MB, `runsync` 20 MB.
+- Wyniki i artefakty zwracamy jako presigned URL z S3 (nie base64 dla dużych plików).
+- Statusy procesów są zapisywane do S3, co zapewnia widoczność między workerami.
 
 ## 🛠️ Dependencies
 
-### Minimal (Pre-installed)
-- `runpod>=1.7.0` - RunPod serverless SDK
-- `fastapi>=0.104.1` - Web framework
-- `uvicorn>=0.24.0` - ASGI server
-- `pydantic>=2.5.0` - Data validation
-- `httpx>=0.25.0` - HTTP client
-
-### Runtime (Installed when needed)
-- `boto3>=1.34.0` - AWS S3 operations
-- `torch` - Machine learning framework
-- `transformers` - NLP models
-- `diffusers` - Diffusion models
+Minimal (preinstall): `runpod`, `pyyaml`, `pydantic`, `httpx`, `python-multipart`, `boto3`, `psutil`.
+Runtime (instalowane w locie przez handler): `torch`, `transformers`, `diffusers`, `accelerate`, `huggingface_hub[cli]`.
 
 **Note**: Redis not used - RunPod provides built-in queue system
 
-## 🔄 API Endpoints
+## 🔄 Serverless input types (RunPod `input`)
 
-- `GET /api/health` - Health check
-- `POST /api/train` - Start training process
-- `POST /api/generate` - Start generation process  
-- `GET /api/processes` - List all processes
-- `GET /api/processes/{id}` - Get process status
-- `DELETE /api/processes/{id}` - Cancel process
-- `POST /api/upload/training-data` - Upload training files
-- `GET /api/download/{id}` - Get download URL
+Wywołujemy Endpoint z `{ "input": { ... } }`. Obsługiwane typy:
+
+- `health`
+- `train` / `train_with_yaml` — YAML config jako string
+- `generate` — `config` lub `prompt`
+- `processes`, `process_status`, `cancel`
+- `upload_training_data` — pliki w base64
+- `bulk_download`, `list_files`, `download_file`
+
+Przykład `Test Input` (train):
+
+```json
+{
+  "input": {
+    "type": "train_with_yaml",
+    "yaml_config": "config: { process: [ { type: lora } ], datasets: [ { folder_path: 'my-training' } ] }"
+  }
+}
+```
+
+Przykład upload datasetu:
+
+```json
+{
+  "input": {
+    "type": "upload_training_data",
+    "training_name": "my-training",
+    "files": [
+      { "filename": "img_001.jpg", "content": "<base64>", "content_type": "image/jpeg" },
+      { "filename": "img_001.txt", "content": "<base64>", "content_type": "text/plain" }
+    ]
+  }
+}
+```
 
 ## 📝 Logging
 
@@ -134,13 +135,12 @@ The system uses unified logging for RunPod compatibility:
 - **Request tracking**: Each request gets unique ID
 - **Error tracking**: Detailed error information with context
 
-## 🎛️ Environment Variables
+## 🎛️ Environment Variables — skrót
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WORKSPACE_PATH` | Working directory | `/workspace` |
-| `HF_TOKEN` | HuggingFace token | Required |
-| `DEBUG` | Debug mode | `false` |
+- `HF_TOKEN` (required)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (required)
+- `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_PREFIX`
+- `TRAINING_TIMEOUT`, `GENERATION_TIMEOUT`, `MAX_RETRIES` (opcjonalne)
 
 ## 🚨 Troubleshooting
 

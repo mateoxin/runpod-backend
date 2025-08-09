@@ -10,37 +10,18 @@ container_config:
   ports:
     - "8000:8000"
   environment:
-    # 🔐 SECURE TOKEN PARTS - ASSEMBLED IN CODE
-    RUNPOD_TOKEN_PART1: "rpa_368WKEP3YB46OY691TYZ"
-    RUNPOD_TOKEN_PART2: "FO4GZ2DTDQ081NUCICGEi5luyf"
-    HF_TOKEN_PART1: "hf_FUDLOchyzVotolBqnq"
-    HF_TOKEN_PART2: "flSEIZrbnUXtaYxY"
-    
-    # 🚀 RunPod Settings
-    RUNPOD_ENDPOINT_ID: "rqwaizbda7ucsj"
-    
-    # 🏗️ Application Settings
-    DEBUG: "false"
-    MOCK_MODE: "false"
-    MAX_CONCURRENT_JOBS: "10"
-    GPU_TIMEOUT: "14400"
-    
-    # 📁 Paths (RunPod Standard)
-    WORKSPACE_PATH: "/workspace"
-    MODELS_PATH: "/workspace/models"
-    OUTPUT_PATH: "/workspace/output"
-    AI_TOOLKIT_PATH: "/workspace/ai-toolkit"
-    
-    # 🌐 Server Configuration
-    HOST: "0.0.0.0"
-    PORT: "8000"
-    
-    # 🗄️ Storage (S3 Compatible) — configured at startup; only AWS keys as env
+    # Provide secrets via RunPod console, do not commit real values here
+    HF_TOKEN: "${HF_TOKEN}"
     AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
     AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-    
-    # 🔄 Redis (RunPod Internal)
-    REDIS_URL: "redis://localhost:6379/0"
+    # S3 config
+    S3_BUCKET: "${S3_BUCKET}"
+    S3_REGION: "${S3_REGION}"
+    S3_ENDPOINT_URL: "${S3_ENDPOINT_URL}"
+    S3_PREFIX: "${S3_PREFIX}"
+    # App config
+    DEBUG: "false"
+    MAX_CONCURRENT_JOBS: "10"
 
 # 🖥️ GPU Configuration
 gpu:
@@ -55,8 +36,7 @@ scaling:
   
 # 🚀 Startup Configuration
 startup:
-  command: "python -u app/rp_handler.py"
-  health_check: "http://localhost:8000/health"
+  command: "python -u /rp_handler.py"
   timeout: 600  # 10 minutes
 
 # 📦 Build Configuration

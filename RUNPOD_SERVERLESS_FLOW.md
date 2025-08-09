@@ -145,3 +145,4 @@ sequenceDiagram
 - Przykładowe minimalne handlery: `SimpleBackend/handler.py`, `FastBackend/handler_fast.py`
 
 
+

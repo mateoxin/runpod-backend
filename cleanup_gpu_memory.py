@@ -87,7 +87,7 @@ def get_process_details(pid):
         if result.returncode == 0:
             return result.stdout.strip()
         return f"PID {pid} - details unavailable"
-    except:
+    except Exception:
         return f"PID {pid} - error getting details"
 
 def check_if_ai_toolkit_process(cmd_line):
