@@ -35,10 +35,9 @@ container_config:
     HOST: "0.0.0.0"
     PORT: "8000"
     
-    # 🗄️ Storage (S3 Compatible)
-    S3_ENDPOINT_URL: "https://storage.runpod.io"
-    S3_REGION: "us-east-1"
-    S3_BUCKET: "lora-dashboard-storage"
+    # 🗄️ Storage (S3 Compatible) — configured at startup; only AWS keys as env
+    AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+    AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
     
     # 🔄 Redis (RunPod Internal)
     REDIS_URL: "redis://localhost:6379/0"
