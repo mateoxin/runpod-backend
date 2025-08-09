@@ -1107,6 +1107,7 @@ def get_real_services():
             try:
                 s3_path = f"{self.prefix}/datasets/{training_name}"
                 uploaded_files = []
+                log(f"📤 Uploading dataset to S3: {s3_path} | Files: {len(files)}", "INFO")
                 
                 for file_info in files:
                     filename = file_info.get("filename")
@@ -1129,6 +1130,7 @@ def get_real_services():
                     uploaded_files.append(s3_key)
                     log(f"✅ Uploaded to S3: {s3_key}", "INFO")
                 
+                log(f"📦 Dataset upload complete: {len(uploaded_files)} files -> {s3_path}", "INFO")
                 return s3_path
                 
             except Exception as e:
@@ -1142,6 +1144,7 @@ def get_real_services():
             from datetime import datetime
             training_name = f"training_{int(datetime.now().timestamp())}"
             try:
+                log(f"📤 upload_training_files invoked | Files: {len(files)}", "INFO")
                 # Prefer enhanced batch uploader if available
                 if ENHANCED_IMPORTS:
                     try:
@@ -1165,6 +1168,7 @@ def get_real_services():
                 raise Exception("S3 client not available")
             
             try:
+                log(f"📥 Downloading dataset from S3: {s3_path} -> {local_path}", "INFO")
                 os.makedirs(local_path, exist_ok=True)
                 
                 # List all files in S3 path
@@ -1203,6 +1207,7 @@ def get_real_services():
             
             try:
                 s3_base_path = f"{self.prefix}/results/{process_id}/{result_type}"
+                log(f"📤 Starting results upload to S3 | process_id: {process_id} | type: {result_type} | source: {local_path}", "INFO")
                 
                 if os.path.isfile(local_path):
                     # Single file
@@ -1271,6 +1276,11 @@ def get_real_services():
                 )
                 
                 status_data = json.loads(response['Body'].read().decode('utf-8'))
+                try:
+                    status = status_data.get('status') if isinstance(status_data, dict) else None
+                    log(f"📥 Loaded process status from S3 for {process_id}{' | status: ' + str(status) if status else ''}", "INFO")
+                except Exception:
+                    pass
                 return status_data
                 
             except ClientError as e:
@@ -1353,6 +1363,7 @@ def get_real_services():
                     },
                     ExpiresIn=3600
                 )
+                log(f"🔗 Presigned URL generated for S3 key: {s3_key} ({format_file_size(size)})", "INFO")
                 return {
                     "type": "url",
                     "url": presigned_url,
@@ -1374,7 +1385,7 @@ def get_real_services():
                     # Normalize path, avoid leading slash
                     normalized = path.lstrip('/')
                     s3_prefix = f"{self.prefix}/{normalized}"
-
+                log(f"📁 Listing S3 files under prefix: {s3_prefix}", "INFO")
                 files = []
                 continuation_token = None
                 while True:
@@ -1405,6 +1416,7 @@ def get_real_services():
                         continuation_token = response.get('NextContinuationToken')
                     else:
                         break
+                log(f"📄 Listed {len(files)} files from prefix: {s3_prefix}", "INFO")
                 return files
             except Exception as e:
                 log(f"❌ Error listing files from S3: {e}", "ERROR")
@@ -1596,8 +1608,12 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
         if ENHANCED_IMPORTS:
             try:
                 validated_input = validate_request(job_input)
-                # Convert back to dict for compatibility
-                job_input = validated_input.dict()
+                # Convert back to dict for compatibility (Pydantic v2 prefers model_dump)
+                job_input = (
+                    validated_input.model_dump()
+                    if hasattr(validated_input, "model_dump")
+                    else validated_input.dict()
+                )
                 job_type = job_input.get("type")
             except Exception as validation_error:
                 log(f"❌ Validation error: {validation_error}", "ERROR")
