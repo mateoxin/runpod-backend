@@ -20,8 +20,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements_minimal.txt .
 RUN pip install --no-cache-dir -r requirements_minimal.txt
 
-# Copy the handler (flat structure like runpod-fastbackend)
+# Copy backend code (flat structure like runpod-fastbackend)
 COPY rp_handler.py .
+COPY utils.py .
+COPY storage_utils.py .
+COPY models.py .
 
 # Create necessary directories
 RUN mkdir -p /workspace/training_data \
@@ -31,6 +34,12 @@ RUN mkdir -p /workspace/training_data \
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV WORKSPACE_PATH=/workspace
+
+# S3 configuration (overridable by RunPod/Env secrets)
+ENV S3_BUCKET=tqv92ffpc5
+ENV S3_REGION=eu-ro-1
+ENV S3_ENDPOINT_URL=https://s3api-eu-ro-1.runpod.io
+ENV S3_PREFIX=lora-dashboard
 
 # Command to run the handler (flat structure like runpod-fastbackend)
 CMD ["python", "-u", "/rp_handler.py"] 
