@@ -97,6 +97,12 @@ except Exception:
     # Safe no-op if python-dotenv is unavailable
     pass
 
+# S3 configuration initialized once at startup (no repeated env lookups)
+S3_BUCKET: str = os.environ.get("S3_BUCKET", "tqv92ffpc5")
+S3_REGION: str = os.environ.get("S3_REGION", "eu-ro-1")
+S3_ENDPOINT_URL: str = os.environ.get("S3_ENDPOINT_URL", "https://s3api-eu-ro-1.runpod.io")
+S3_PREFIX: str = os.environ.get("S3_PREFIX", "lora-dashboard")
+
 # Global flag to track if environment is setup
 ENVIRONMENT_READY = False
 SETUP_LOCK = threading.Lock()
@@ -512,6 +518,20 @@ def get_real_services():
         def __init__(self, **kwargs):
             log("⚡ Real Process Manager initialized", "INFO")
             log("🔄 Using RunPod built-in queue system + real AI toolkit", "INFO")
+            # Wire dependencies
+            self.gpu_manager = kwargs.get("gpu_manager")
+            self.storage = kwargs.get("storage_service")
+
+            # Expose S3 configuration used by dataset handling and result uploads
+            if self.storage and hasattr(self.storage, "bucket_name"):
+                self.bucket_name = self.storage.bucket_name
+            else:
+                self.bucket_name = S3_BUCKET
+
+            if self.storage and hasattr(self.storage, "prefix"):
+                self.prefix = self.storage.prefix
+            else:
+                self.prefix = S3_PREFIX
         
         async def initialize(self):
             log("🚀 Real Process Manager ready for AI operations", "INFO")
@@ -1033,7 +1053,7 @@ def get_real_services():
                             s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
                             
                             # Validate bucket
-                            if bucket != (_storage_service.bucket_name if _storage_service else os.environ.get('S3_BUCKET', '')):
+                            if bucket != (_storage_service.bucket_name if _storage_service else S3_BUCKET):
                                 log(f"⚠️ Different S3 bucket: {bucket}", "WARN")
                             
                             filename = os.path.basename(s3_key)
@@ -1220,11 +1240,11 @@ def get_real_services():
             log("💾 Real Storage Service with S3 initialized", "INFO")
             self.workspace_path = "/workspace"
             
-            # S3 Configuration (ENV-parametrized)
-            self.bucket_name = os.environ.get("S3_BUCKET", "tqv92ffpc5")
-            self.endpoint_url = os.environ.get("S3_ENDPOINT_URL", "https://s3api-eu-ro-1.runpod.io")
-            self.region = os.environ.get("S3_REGION", "eu-ro-1")
-            self.prefix = os.environ.get("S3_PREFIX", "lora-dashboard")
+            # S3 configuration from startup constants (no repeated env reads)
+            self.bucket_name = S3_BUCKET
+            self.endpoint_url = S3_ENDPOINT_URL
+            self.region = S3_REGION
+            self.prefix = S3_PREFIX
             
             if S3_AVAILABLE:
                 try:
@@ -2625,7 +2645,7 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     if s3_file.get("result_type") in ["images", "samples"]:
                         filename = s3_file.get("filename", "")
                         if any(filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
-                            s3_url = f"s3://{_storage_service.bucket_name}/{s3_file.get('key', '')}" if _storage_service else f"s3://{os.environ.get('S3_BUCKET', 'tqv92ffpc5')}/{s3_file.get('key', '')}"
+                            s3_url = f"s3://{_storage_service.bucket_name}/{s3_file.get('key', '')}" if _storage_service else f"s3://{S3_BUCKET}/{s3_file.get('key', '')}"
                             image_files.append({
                                 "id": f"img_{s3_file.get('process_id', '')}_{filename.split('.')[0]}",
                                 "filename": filename,
