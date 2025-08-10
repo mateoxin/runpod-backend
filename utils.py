@@ -9,6 +9,7 @@ import time
 import subprocess
 import psutil
 import asyncio
+import inspect
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -242,9 +243,9 @@ async def retry_with_backoff(
     
     for attempt in range(max_retries):
         try:
-            # Call function and await if it returns a coroutine/future
+            # Call function and await if it returns an awaitable (coroutine, Task, or Future)
             result = func()
-            if asyncio.iscoroutine(result):
+            if inspect.isawaitable(result):
                 return await result
             return result
         except Exception as e:
