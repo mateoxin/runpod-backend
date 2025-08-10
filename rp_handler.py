@@ -1309,6 +1309,72 @@ def get_real_services():
                 log(f"✅ Cleanup complete. Deleted: {total_deleted} objects", "INFO")
             except Exception as e:
                 log(f"⚠️ Cleanup dataset folder failed: {e}", "WARN")
+
+        async def delete_results_by_type(self, result_type: str) -> dict:
+            """Delete all S3 objects for a given results type across all processes.
+
+            Supported types: "lora", "samples", "images"
+            """
+            if not self.s3_client:
+                return {"deleted": 0, "found": 0, "error": "S3 client not available"}
+
+            valid_types = {"lora", "samples", "images"}
+            if result_type not in valid_types:
+                return {"deleted": 0, "found": 0, "error": f"Invalid result type: {result_type}"}
+
+            try:
+                base_prefix = f"{self.prefix}/results/"
+                log(f"🧹 Deleting all '{result_type}' results under: {base_prefix}", "INFO")
+
+                continuation_token = None
+                keys_to_delete = []
+                found = 0
+
+                while True:
+                    params = {
+                        'Bucket': self.bucket_name,
+                        'Prefix': base_prefix
+                    }
+                    if continuation_token:
+                        params['ContinuationToken'] = continuation_token
+
+                    response = await self._s3_call(self.s3_client.list_objects_v2, **params)
+                    contents = response.get('Contents', []) if response else []
+                    if not contents:
+                        break
+
+                    for obj in contents:
+                        key = obj['Key']
+                        # Match segment '/<type>/' to avoid accidental deletions
+                        if f"/{result_type}/" in key:
+                            keys_to_delete.append(key)
+                            found += 1
+
+                    if response.get('IsTruncated'):
+                        continuation_token = response.get('NextContinuationToken')
+                    else:
+                        break
+
+                deleted = 0
+                # Delete in batches of up to 1000
+                for i in range(0, len(keys_to_delete), 1000):
+                    batch = keys_to_delete[i:i+1000]
+                    if not batch:
+                        continue
+                    await self._s3_call(
+                        self.s3_client.delete_objects,
+                        Bucket=self.bucket_name,
+                        Delete={'Objects': [{'Key': k} for k in batch]}
+                    )
+                    deleted += len(batch)
+                    log(f"🗑️ Deleted batch {i//1000 + 1}: {len(batch)} objects", "INFO")
+
+                log(f"✅ Deletion finished for '{result_type}': found={found}, deleted={deleted}", "INFO")
+                return {"deleted": deleted, "found": found}
+
+            except Exception as e:
+                log(f"❌ Failed to delete results of type '{result_type}': {e}", "ERROR")
+                return {"deleted": 0, "found": 0, "error": str(e)}
         
         async def upload_dataset_to_s3(self, training_name: str, files: list) -> str:
             """Upload training dataset files to S3"""
@@ -1882,7 +1948,8 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             "upload_training_data": lambda x: handle_upload_training_data(x, request_id),
             "bulk_download": handle_bulk_download,
             "list_files": handle_list_files,
-            "download_file": handle_download_file
+            "download_file": handle_download_file,
+            "delete_results": handle_delete_results
         }
         
         # Route to appropriate handler
@@ -2634,6 +2701,27 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         log(f"❌ List files error: {e}", "ERROR")
         return {"error": f"Failed to list files: {str(e)}"}
+
+async def handle_delete_results(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle deletion of results by type across all processes in S3."""
+    try:
+        if not _storage_service:
+            return {"error": "Storage service not initialized"}
+        result_type = (job_input.get("result_type") or "").strip().lower()
+        if result_type not in {"lora", "samples", "images"}:
+            return {"error": "Invalid or missing result_type. Use one of: lora, samples, images"}
+
+        result = await _storage_service.delete_results_by_type(result_type)
+        if result.get("error"):
+            return {"error": result.get("error"), "result_type": result_type}
+        return {
+            "status": "success",
+            "result_type": result_type,
+            **result
+        }
+    except Exception as e:
+        log(f"❌ delete_results error: {e}", "ERROR")
+        return {"error": f"Failed to delete results: {str(e)}"}
 
 async def handle_download_file(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle direct file download by path"""
