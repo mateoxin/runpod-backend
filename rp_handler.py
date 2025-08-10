@@ -2021,7 +2021,7 @@ async def handle_process_status(job_input: Dict[str, Any]) -> Dict[str, Any]:
         log(f"❌ Process status error: {e}", "ERROR")
         return {"error": f"Failed to get process status: {str(e)}"}
 
-async def handle_get_lora_models() -> Dict[str, Any]:
+async def handle_get_lora_models(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle get LoRA models request"""
     try:
         if not _lora_service:
