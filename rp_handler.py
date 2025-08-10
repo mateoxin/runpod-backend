@@ -502,21 +502,18 @@ def get_real_services():
             log("🚀 Real Process Manager ready for AI operations", "INFO")
         
         async def start_training(self, config):
-            """Start real LoRA training with AI toolkit"""
+            """Start real LoRA training with AI toolkit (synchronous for Serverless)"""
             process_id = f"train_{uuid.uuid4().hex[:12]}"
-            
+
             try:
                 # Add to process tracking
                 add_process(process_id, "training", "starting", {"config": config})
                 log(f"🎯 Real training started: {process_id}", "INFO")
-                
-                # Start training in background thread
-                threading.Thread(
-                    target=self._run_training_background,
-                    args=(process_id, config),
-                    daemon=True
-                ).start()
-                
+
+                # Run blocking training synchronously in executor and await completion
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._run_training_background, process_id, config)
+
                 return process_id
             except Exception as e:
                 log(f"❌ Training start failed: {e}", "ERROR")
