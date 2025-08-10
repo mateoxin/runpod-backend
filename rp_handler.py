@@ -1099,13 +1099,52 @@ def get_real_services():
         async def health_check(self):
             return "healthy"
         
+        async def cleanup_dataset_folder(self):
+            """Delete all files under the fixed dataset prefix in S3."""
+            if not self.s3_client:
+                raise Exception("S3 client not available")
+            try:
+                s3_prefix = f"{self.prefix}/dataset/"
+                log(f"🧹 Cleaning up S3 dataset folder: {s3_prefix}", "INFO")
+                continuation_token = None
+                total_deleted = 0
+                while True:
+                    params = {
+                        'Bucket': self.bucket_name,
+                        'Prefix': s3_prefix
+                    }
+                    if continuation_token:
+                        params['ContinuationToken'] = continuation_token
+                    response = await self._s3_call(self.s3_client.list_objects_v2, **params)
+                    contents = response.get('Contents', []) if response else []
+                    if not contents:
+                        break
+                    # Delete in batches of 1000 (S3 limit)
+                    for i in range(0, len(contents), 1000):
+                        batch = contents[i:i+1000]
+                        delete_objects = [{'Key': obj['Key']} for obj in batch]
+                        await self._s3_call(
+                            self.s3_client.delete_objects,
+                            Bucket=self.bucket_name,
+                            Delete={'Objects': delete_objects}
+                        )
+                        total_deleted += len(delete_objects)
+                    if response.get('IsTruncated'):
+                        continuation_token = response.get('NextContinuationToken')
+                    else:
+                        break
+                log(f"✅ Cleanup complete. Deleted: {total_deleted} objects", "INFO")
+            except Exception as e:
+                log(f"⚠️ Cleanup dataset folder failed: {e}", "WARN")
+        
         async def upload_dataset_to_s3(self, training_name: str, files: list) -> str:
             """Upload training dataset files to S3"""
             if not self.s3_client:
                 raise Exception("S3 client not available")
             
             try:
-                s3_path = f"{self.prefix}/datasets/{training_name}"
+                # Fixed dataset path (singular): lora-dashboard/dataset
+                s3_path = f"{self.prefix}/dataset"
                 uploaded_files = []
                 log(f"📤 Uploading dataset to S3: {s3_path} | Files: {len(files)}", "INFO")
                 
@@ -1149,7 +1188,8 @@ def get_real_services():
                 if ENHANCED_IMPORTS:
                     try:
                         from storage_utils import S3StorageManager
-                        s3_prefix = f"{self.prefix}/datasets/{training_name}"
+                        # Fixed dataset path
+                        s3_prefix = f"{self.prefix}/dataset"
                         manager = S3StorageManager()
                         uploaded_keys = await manager.batch_upload_files(files, s3_prefix)
                         return {"training_name": training_name, "s3_path": s3_prefix, "files": len(uploaded_keys)}
@@ -2120,8 +2160,10 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
         # Clean up existing data if requested
         if cleanup_existing and _storage_service:
             try:
-                # TODO: Implement cleanup of existing training data
-                log(f"🧽 Cleanup existing data: {training_name} (if exists)", "INFO")
+                if hasattr(_storage_service, 'cleanup_dataset_folder'):
+                    await _storage_service.cleanup_dataset_folder()
+                else:
+                    log("⚠️ Cleanup method not available on storage service", "WARN")
             except Exception as e:
                 log(f"⚠️ Cleanup failed: {e}", "WARN")
         
