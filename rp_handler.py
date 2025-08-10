@@ -611,6 +611,32 @@ def get_real_services():
                 except Exception as e:
                     log(f"⚠️ Dataset download failed, continuing with original config: {e}", "WARNING")
                 
+                # Dynamically adjust sample_every to ensure samples are generated
+                try:
+                    config_data = yaml.safe_load(config)
+                    if isinstance(config_data, dict):
+                        cfg = config_data.get('config', {})
+                        processes = cfg.get('process', [])
+                        
+                        for process in processes:
+                            if isinstance(process, dict):
+                                train_config = process.get('train', {})
+                                sample_config = process.get('sample', {})
+                                
+                                steps = train_config.get('steps', 1000)
+                                current_sample_every = sample_config.get('sample_every', 100)
+                                
+                                # Ensure sample_every allows at least 2-3 samples during training
+                                optimal_sample_every = min(current_sample_every, max(10, steps // 3))
+                                
+                                if optimal_sample_every != current_sample_every:
+                                    sample_config['sample_every'] = optimal_sample_every
+                                    log(f"🔧 Adjusted sample_every from {current_sample_every} to {optimal_sample_every} (steps: {steps})", "INFO")
+                        
+                        config = yaml.dump(config_data)
+                except Exception as e:
+                    log(f"⚠️ Failed to adjust sample_every, using original config: {e}", "WARNING")
+                
                 # Setup environment
                 log(f"🔧 Setting up environment for: {process_id}", "INFO")
                 hf_token = os.environ.get("HF_TOKEN")
@@ -653,7 +679,53 @@ def get_real_services():
                     # If programmatic login fails, continue with env vars (often sufficient)
                     log(f"⚠️ HF programmatic login failed: {e} - env vars will be used", "WARNING")
                 
-                # Setup environment variables
+                # Setup cache directories and cleanup before training
+                cache_base = "/workspace/cache"
+                cache_dirs = [
+                    f"{cache_base}/hf",
+                    f"{cache_base}/hub", 
+                    f"{cache_base}/transformers",
+                    f"{cache_base}/diffusers"
+                ]
+                
+                for cache_dir in cache_dirs:
+                    os.makedirs(cache_dir, exist_ok=True)
+                
+                # Check available disk space and cleanup if needed
+                try:
+                    import shutil
+                    total, used, free = shutil.disk_usage("/workspace")
+                    free_gb = free // (1024**3)
+                    log(f"💾 Available disk space: {free_gb}GB", "INFO")
+                    
+                    # If less than 5GB free, try cleanup
+                    if free_gb < 5:
+                        log(f"⚠️ Low disk space ({free_gb}GB), attempting cleanup", "WARN")
+                        
+                        # Clean old cache files older than 1 day
+                        import time
+                        cutoff_time = time.time() - (24 * 3600)  # 1 day ago
+                        
+                        for cache_dir in cache_dirs:
+                            if os.path.exists(cache_dir):
+                                for root, dirs, files in os.walk(cache_dir):
+                                    for file in files:
+                                        try:
+                                            file_path = os.path.join(root, file)
+                                            if os.path.getmtime(file_path) < cutoff_time:
+                                                os.remove(file_path)
+                                        except Exception:
+                                            continue
+                        
+                        # Check space again
+                        total, used, free = shutil.disk_usage("/workspace")
+                        free_gb = free // (1024**3)
+                        log(f"💾 Disk space after cleanup: {free_gb}GB", "INFO")
+                        
+                except Exception as e:
+                    log(f"⚠️ Disk space check failed: {e}", "WARN")
+                
+                # Setup environment variables with comprehensive HF cache redirection
                 env = os.environ.copy()
                 env.update({
                     "CUDA_VISIBLE_DEVICES": "0",
@@ -661,7 +733,15 @@ def get_real_services():
                     "HF_TOKEN": hf_token,
                     "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
                     "HF_HUB_ENABLE_HF_TRANSFER": "1",
-                    "TRANSFORMERS_CACHE": "/workspace/cache"
+                    # Comprehensive HF cache redirection
+                    "HF_HOME": f"{cache_base}/hf",
+                    "XDG_CACHE_HOME": cache_base,
+                    "HUGGINGFACE_HUB_CACHE": f"{cache_base}/hub",
+                    "TRANSFORMERS_CACHE": f"{cache_base}/transformers",
+                    "DIFFUSERS_CACHE": f"{cache_base}/diffusers",
+                    # Additional cache controls
+                    "HF_HUB_CACHE": f"{cache_base}/hub",
+                    "TORCH_HOME": f"{cache_base}/torch"
                 })
                 
                 # Check if AI toolkit exists
