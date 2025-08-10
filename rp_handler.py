@@ -703,7 +703,6 @@ def get_real_services():
                         log(f"⚠️ Low disk space ({free_gb}GB), attempting cleanup", "WARN")
                         
                         # Clean old cache files older than 1 day
-                        import time
                         cutoff_time = time.time() - (24 * 3600)  # 1 day ago
                         
                         for cache_dir in cache_dirs:
