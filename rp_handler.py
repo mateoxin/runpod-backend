@@ -744,12 +744,13 @@ def get_real_services():
                     "HF_HOME": f"{cache_base}/hf",
                     "XDG_CACHE_HOME": cache_base,
                     "HUGGINGFACE_HUB_CACHE": f"{cache_base}/hub",
-                    "TRANSFORMERS_CACHE": f"{cache_base}/transformers",
                     "DIFFUSERS_CACHE": f"{cache_base}/diffusers",
                     # Additional cache controls
                     "HF_HUB_CACHE": f"{cache_base}/hub",
                     "TORCH_HOME": f"{cache_base}/torch"
                 })
+                # Remove deprecated cache variable to avoid FutureWarning
+                env.pop("TRANSFORMERS_CACHE", None)
                 
                 # Check if AI toolkit exists
                 ai_toolkit_path = "/workspace/ai-toolkit/run.py"
