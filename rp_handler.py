@@ -748,6 +748,62 @@ def get_real_services():
                                 log(f"✅ LoRA results uploaded to S3: {s3_output_path}", "INFO")
                             except Exception as e:
                                 log(f"⚠️ Failed to upload LoRA to S3: {e}", "WARNING")
+
+                        # Collect and upload training samples (images) if present
+                        try:
+                            samples_candidates = []
+                            # Try to derive dataset name from YAML config
+                            dataset_name = None
+                            try:
+                                if isinstance(config_data, dict):
+                                    cfg = config_data.get('config') or {}
+                                    dataset_name = cfg.get('name')
+                            except Exception:
+                                pass
+
+                            if dataset_name:
+                                samples_candidates.append(f"/workspace/output/{dataset_name}/samples")
+                            # Additional generic locations
+                            samples_candidates.extend([
+                                f"/workspace/output/training/{process_id}/samples",
+                                f"/workspace/output/{process_id}/samples",
+                                "/workspace/output/samples"
+                            ])
+
+                            collected_samples = []
+                            for candidate_dir in samples_candidates:
+                                if os.path.isdir(candidate_dir):
+                                    for ext in ['*.png', '*.jpg', '*.jpeg', '*.webp', '*.gif']:
+                                        collected_samples.extend(glob.glob(os.path.join(candidate_dir, '**', ext), recursive=True))
+
+                            # Deduplicate and ensure files exist
+                            collected_samples = list({p for p in collected_samples if os.path.isfile(p)})
+
+                            if collected_samples:
+                                final_samples_dir = f"/workspace/output/training/{process_id}/samples"
+                                os.makedirs(final_samples_dir, exist_ok=True)
+                                for src_file in collected_samples:
+                                    try:
+                                        shutil.copy2(src_file, os.path.join(final_samples_dir, os.path.basename(src_file)))
+                                    except Exception as copy_err:
+                                        log(f"⚠️ Failed to copy sample {src_file}: {copy_err}", "WARN")
+
+                                if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
+                                    try:
+                                        log(f"📤 Uploading training samples to S3: {process_id} | Files: {len(collected_samples)}", "INFO")
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        loop.run_until_complete(
+                                            _storage_service.upload_results_to_s3(
+                                                process_id, final_samples_dir, 'samples'
+                                            )
+                                        )
+                                        loop.close()
+                                        log(f"✅ Samples uploaded to S3: s3://tqv92ffpc5/lora-dashboard/results/{process_id}/samples/", "INFO")
+                                    except Exception as e:
+                                        log(f"⚠️ Failed to upload samples to S3: {e}", "WARNING")
+                        except Exception as e:
+                            log(f"⚠️ Sample collection step failed: {e}", "WARN")
                         
                         # Calculate metrics
                         duration = time.time() - start_time
@@ -2369,31 +2425,29 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 "type": "lora"
             })
         
-        # Get generated images from S3
+        # Get generated images (and training samples) from S3
         image_files = []
         try:
             if hasattr(_storage_service, 'list_files'):
                 s3_files = await _storage_service.list_files("")  # List all files
                 
                 for s3_file in s3_files:
-                    # Only include image files
-                    if s3_file.get("result_type") == "images":
+                    # Include both generation images and training samples
+                    if s3_file.get("result_type") in ["images", "samples"]:
                         filename = s3_file.get("filename", "")
                         if any(filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
-                            # Generate presigned URL for download
                             s3_url = f"s3://tqv92ffpc5/{s3_file.get('key', '')}"
-                            
                             image_files.append({
                                 "id": f"img_{s3_file.get('process_id', '')}_{filename.split('.')[0]}",
                                 "filename": filename,
-                                "path": s3_url,  # S3 path for frontend
+                                "path": s3_url,
                                 "s3_key": s3_file.get("key", ""),
                                 "process_id": s3_file.get("process_id", ""),
                                 "size": s3_file.get("size", 0),
                                 "size_formatted": format_file_size(s3_file.get("size", 0)),
                                 "created_at": s3_file.get("last_modified", ""),
                                 "type": "image",
-                                "result_type": "images"
+                                "result_type": s3_file.get("result_type")
                             })
         except Exception as e:
             log(f"❌ Error listing S3 files: {e}", "ERROR")
