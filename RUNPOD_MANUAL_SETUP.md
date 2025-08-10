@@ -12,7 +12,7 @@ Set these as Endpoint Secrets (preferred) or keep Docker defaults and override a
 - S3_PREFIX: lora-dashboard
 - AWS_ACCESS_KEY_ID: your RunPod S3 access key
 - AWS_SECRET_ACCESS_KEY: your RunPod S3 secret key
-- HF_TOKEN: your Hugging Face token
+- HF_TOKEN: Hugging Face token (required for model pulls/training). Set this as an Endpoint Secret; do not commit.
 - Optional:
   - DEBUG: false
   - MAX_CONCURRENT_JOBS: 10

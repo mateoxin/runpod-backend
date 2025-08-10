@@ -462,9 +462,11 @@ def get_memory_usage() -> Dict[str, Any]:
 # Environment validation
 def validate_environment() -> Dict[str, bool]:
     """Validate environment setup"""
+    # Use lazy torch loader to avoid false negatives when torch isn't imported yet
+    torch = _get_torch()
     checks = {
         "workspace_exists": os.path.exists("/workspace"),
-        "gpu_available": torch.cuda.is_available() if 'torch' in locals() else False,
+        "gpu_available": torch.cuda.is_available() if torch else False,
         "hf_token_set": bool(os.environ.get("HF_TOKEN")),
         "training_data_dir": os.path.exists("/workspace/training_data"),
         "models_dir": os.path.exists("/workspace/models"),
