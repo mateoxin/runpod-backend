@@ -541,72 +541,83 @@ def get_real_services():
                 # Parse and validate config
                 try:
                     config_data = yaml.safe_load(config)
-                    
-                    # Enhanced dataset path handling
-                    dataset_config = None
-                    if 'config' in config_data:
-                        if 'datasets' in config_data['config'] and isinstance(config_data['config']['datasets'], list):
-                            dataset_config = config_data['config']['datasets'][0]
-                        elif 'dataset' in config_data['config']:
-                            dataset_config = config_data['config']['dataset']
-                    
-                    if dataset_config and 'folder_path' in dataset_config:
-                        dataset_path = dataset_config['folder_path']
+
+                    def resolve_and_download(ds_cfg: Dict[str, Any]) -> bool:
+                        if not isinstance(ds_cfg, dict):
+                            return False
+                        dataset_path = ds_cfg.get('folder_path')
+                        if not dataset_path:
+                            return False
                         log(f"📂 Dataset path from config: {dataset_path}", "INFO")
-                        
-                        # Enhanced S3 dataset handling with proper path resolution
-                        if dataset_path.startswith('s3://') or not dataset_path.startswith('/'):
-                            log(f"📥 Preparing to download dataset from S3: {dataset_path}", "INFO")
-                            
-                            # Resolve S3 path
-                            if dataset_path.startswith('s3://'):
-                                # Full S3 URI
-                                s3_parts = dataset_path.replace('s3://', '').split('/', 1)
-                                bucket = s3_parts[0]
-                                s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
-                                
-                                # Use our bucket if it matches
-                                if bucket == 'tqv92ffpc5':
-                                    s3_dataset_path = s3_key
-                                else:
-                                    log(f"⚠️ Different S3 bucket specified: {bucket}", "WARN")
-                                    s3_dataset_path = dataset_path
-                            else:
-                                # Training name reference - construct proper S3 path
-                                s3_dataset_path = f"lora-dashboard/datasets/{dataset_path}"
-                            
-                            # Create unique local path for this training
-                            local_dataset_path = f"/workspace/training_data/{process_id}"
-                            os.makedirs(local_dataset_path, exist_ok=True)
-                            
-                            # Download dataset synchronously
-                            if _storage_service and hasattr(_storage_service, 'download_dataset_from_s3'):
-                                try:
-                                    # Run async function in sync context
-                                    loop = asyncio.new_event_loop()
-                                    asyncio.set_event_loop(loop)
-                                    loop.run_until_complete(
-                                        _storage_service.download_dataset_from_s3(s3_dataset_path, local_dataset_path)
-                                    )
-                                    loop.close()
-                                    
-                                    # Update config to use local path
-                                    dataset_config['folder_path'] = local_dataset_path
-                                    config = yaml.dump(config_data)
-                                    log(f"✅ Dataset downloaded to {local_dataset_path}", "INFO")
-                                except Exception as e:
-                                    log(f"❌ Dataset download failed: {e}", "ERROR")
-                                    # Try to continue with original path
-                            else:
-                                log(f"❌ Storage service not available for dataset download", "ERROR")
-                        else:
-                            # Local path - normalize it
+                        needs_download = dataset_path.startswith('s3://') or not dataset_path.startswith('/')
+                        if not needs_download:
                             if ENHANCED_IMPORTS:
-                                dataset_config['folder_path'] = normalize_workspace_path(dataset_path)
-                                config = yaml.dump(config_data)
-                                
+                                ds_cfg['folder_path'] = normalize_workspace_path(dataset_path)
+                            return False
+
+                        log(f"📥 Preparing to download dataset from S3: {dataset_path}", "INFO")
+                        if dataset_path.startswith('s3://'):
+                            s3_parts = dataset_path.replace('s3://', '').split('/', 1)
+                            bucket = s3_parts[0]
+                            s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
+                            if bucket == 'tqv92ffpc5':
+                                s3_dataset_path = s3_key
+                            else:
+                                log(f"⚠️ Different S3 bucket specified: {bucket}", "WARN")
+                                s3_dataset_path = dataset_path
+                        else:
+                            s3_dataset_path = f"lora-dashboard/datasets/{dataset_path}"
+
+                        local_dataset_path = f"/workspace/training_data/{process_id}"
+                        os.makedirs(local_dataset_path, exist_ok=True)
+
+                        if _storage_service and hasattr(_storage_service, 'download_dataset_from_s3'):
+                            try:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                loop.run_until_complete(
+                                    _storage_service.download_dataset_from_s3(s3_dataset_path, local_dataset_path)
+                                )
+                                loop.close()
+                                ds_cfg['folder_path'] = local_dataset_path
+                                log(f"✅ Dataset downloaded to {local_dataset_path}", "INFO")
+                                return True
+                            except Exception as e:
+                                log(f"❌ Dataset download failed: {e}", "ERROR")
+                                return False
+                        else:
+                            log(f"❌ Storage service not available for dataset download", "ERROR")
+                            return False
+
+                    changed = False
+                    root_cfg = config_data.get('config', {}) if isinstance(config_data, dict) else {}
+
+                    # Top-level datasets
+                    top_datasets = root_cfg.get('datasets')
+                    if isinstance(top_datasets, list) and top_datasets:
+                        if resolve_and_download(top_datasets[0]):
+                            changed = True
+                    elif isinstance(root_cfg.get('dataset'), dict):
+                        if resolve_and_download(root_cfg['dataset']):
+                            changed = True
+
+                    # Process-level datasets
+                    processes = root_cfg.get('process', [])
+                    if isinstance(processes, list):
+                        for proc in processes:
+                            if isinstance(proc, dict):
+                                if isinstance(proc.get('datasets'), list) and proc['datasets']:
+                                    if resolve_and_download(proc['datasets'][0]):
+                                        changed = True
+                                elif isinstance(proc.get('dataset'), dict):
+                                    if resolve_and_download(proc['dataset']):
+                                        changed = True
+
+                    if changed:
+                        config = yaml.dump(config_data)
+
                 except Exception as e:
-                    log(f"⚠️ Dataset download failed, continuing with original config: {e}", "WARNING")
+                    log(f"⚠️ Dataset handling failed, continuing with original config: {e}", "WARNING")
                 
                 # Dynamically adjust sample_every to ensure samples are generated
                 try:
