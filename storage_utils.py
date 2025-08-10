@@ -59,16 +59,27 @@ class S3StorageManager:
         """Lazy initialization of S3 client"""
         if not self._client:
             try:
-                self._client = boto3.client(
-                    's3',
-                    endpoint_url=self.config['endpoint_url'],
-                    region_name=self.config['region'],
-                    config=BotoConfig(
-                        s3={'addressing_style': 'path'},
-                        max_pool_connections=50,
-                        retries={'max_attempts': self.config['max_retries']},
-                    )
+                aws_access_key_id = os.environ.get('AWS_ACCESS_KEY_ID')
+                aws_secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+
+                boto_cfg = BotoConfig(
+                    s3={'addressing_style': 'path'},
+                    max_pool_connections=50,
+                    retries={'max_attempts': self.config['max_retries']},
+                    signature_version='s3v4'
                 )
+
+                client_kwargs = {
+                    'service_name': 's3',
+                    'endpoint_url': self.config['endpoint_url'],
+                    'region_name': self.config['region'],
+                    'config': boto_cfg
+                }
+                if aws_access_key_id and aws_secret_access_key:
+                    client_kwargs['aws_access_key_id'] = aws_access_key_id
+                    client_kwargs['aws_secret_access_key'] = aws_secret_access_key
+
+                self._client = boto3.client(**client_kwargs)
                 log("✅ S3 client initialized", "INFO")
             except Exception as e:
                 log(f"❌ Failed to initialize S3 client: {e}", "ERROR")

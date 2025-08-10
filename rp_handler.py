@@ -82,6 +82,21 @@ except ImportError:
     ClientError = Exception
     S3_AVAILABLE = False
 
+# Optional dotenv to load local env/config without committing secrets
+try:
+    from dotenv import load_dotenv
+    # Load defaults from common locations; ignore if missing
+    load_dotenv()  # .env in CWD if present
+    # Also try explicit config.env in common locations
+    for candidate_env in ("/config.env", "/workspace/config.env", os.path.join(os.path.dirname(__file__), "config.env")):
+        try:
+            load_dotenv(candidate_env)
+        except Exception:
+            pass
+except Exception:
+    # Safe no-op if python-dotenv is unavailable
+    pass
+
 # Global flag to track if environment is setup
 ENVIRONMENT_READY = False
 SETUP_LOCK = threading.Lock()
@@ -560,7 +575,8 @@ def get_real_services():
                             s3_parts = dataset_path.replace('s3://', '').split('/', 1)
                             bucket = s3_parts[0]
                             s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
-                            if bucket == 'tqv92ffpc5':
+                            # If bucket matches configured bucket, strip it; otherwise use provided key as-is
+                            if bucket == self.bucket_name:
                                 s3_dataset_path = s3_key
                             else:
                                 log(f"⚠️ Different S3 bucket specified: {bucket}", "WARN")
@@ -832,7 +848,7 @@ def get_real_services():
                                     )
                                 )
                                 loop.close()
-                                s3_output_path = f"s3://tqv92ffpc5/lora-dashboard/results/{process_id}/lora/"
+                                s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{process_id}/lora/"
                                 log(f"✅ LoRA results uploaded to S3: {s3_output_path}", "INFO")
                             except Exception as e:
                                 log(f"⚠️ Failed to upload LoRA to S3: {e}", "WARNING")
@@ -887,7 +903,7 @@ def get_real_services():
                                             )
                                         )
                                         loop.close()
-                                        log(f"✅ Samples uploaded to S3: s3://tqv92ffpc5/lora-dashboard/results/{process_id}/samples/", "INFO")
+                                        log(f"✅ Samples uploaded to S3: s3://{self.bucket_name}/{self.prefix}/results/{process_id}/samples/", "INFO")
                                     except Exception as e:
                                         log(f"⚠️ Failed to upload samples to S3: {e}", "WARNING")
                         except Exception as e:
@@ -1017,7 +1033,7 @@ def get_real_services():
                             s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
                             
                             # Validate bucket
-                            if bucket != 'tqv92ffpc5':
+                            if bucket != (_storage_service.bucket_name if _storage_service else os.environ.get('S3_BUCKET', '')):
                                 log(f"⚠️ Different S3 bucket: {bucket}", "WARN")
                             
                             filename = os.path.basename(s3_key)
@@ -1032,7 +1048,7 @@ def get_real_services():
                                 try:
                                     log(f"📦 Downloading LoRA: {filename}", "INFO")
                                     _storage_service.s3_client.download_file(
-                                        Bucket=bucket if bucket != 'tqv92ffpc5' else _storage_service.bucket_name,
+                                        Bucket=bucket if bucket != _storage_service.bucket_name else _storage_service.bucket_name,
                                         Key=s3_key,
                                         Filename=local_lora_path
                                     )
@@ -1123,7 +1139,7 @@ def get_real_services():
                             )
                         )
                         loop.close()
-                        s3_output_path = f"s3://tqv92ffpc5/lora-dashboard/results/{process_id}/images/"
+                        s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{process_id}/images/"
                         log(f"✅ Generation results uploaded to S3: {s3_output_path}", "INFO")
                     except Exception as e:
                         log(f"⚠️ Failed to upload generation results to S3: {e}", "WARNING")
@@ -1212,16 +1228,29 @@ def get_real_services():
             
             if S3_AVAILABLE:
                 try:
-                    self.s3_client = boto3.client(
-                        's3',
-                        endpoint_url=self.endpoint_url,
-                        region_name=self.region,
-                        config=BotoConfig(
-                            s3={
-                                'addressing_style': 'path'
-                            }
-                        )
+                    # Read AWS credentials from environment (provided via RunPod Secrets)
+                    aws_access_key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+                    aws_secret_access_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+
+                    boto_config = BotoConfig(
+                        s3={
+                            'addressing_style': 'path'
+                        },
+                        signature_version='s3v4'
                     )
+
+                    client_kwargs = {
+                        'service_name': 's3',
+                        'endpoint_url': self.endpoint_url,
+                        'region_name': self.region,
+                        'config': boto_config
+                    }
+                    # Attach credentials only if provided; otherwise rely on IAM role if available
+                    if aws_access_key_id and aws_secret_access_key:
+                        client_kwargs['aws_access_key_id'] = aws_access_key_id
+                        client_kwargs['aws_secret_access_key'] = aws_secret_access_key
+
+                    self.s3_client = boto3.client(**client_kwargs)
                     log("✅ S3 client initialized", "INFO")
                 except Exception as e:
                     log(f"❌ S3 client init failed: {e}", "ERROR")
@@ -2529,7 +2558,7 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     if s3_file.get("result_type") in ["images", "samples"]:
                         filename = s3_file.get("filename", "")
                         if any(filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
-                            s3_url = f"s3://tqv92ffpc5/{s3_file.get('key', '')}"
+                            s3_url = f"s3://{_storage_service.bucket_name}/{s3_file.get('key', '')}" if _storage_service else f"s3://{os.environ.get('S3_BUCKET', 'tqv92ffpc5')}/{s3_file.get('key', '')}"
                             image_files.append({
                                 "id": f"img_{s3_file.get('process_id', '')}_{filename.split('.')[0]}",
                                 "filename": filename,
