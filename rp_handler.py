@@ -1443,12 +1443,17 @@ def get_real_services():
                     s3_key = first['Key']
                     size = first.get('Size', 0)
                 else:
-                    # If key provided, we can HEAD to get size
+                    # If key provided, validate object exists and get size
                     try:
-                        head = await self._s3_call(self.s3_client.head_object, Bucket=self.bucket_name, Key=s3_key)
+                        head = await self._s3_call(
+                            self.s3_client.head_object,
+                            Bucket=self.bucket_name,
+                            Key=s3_key
+                        )
                         size = head.get('ContentLength', 0)
-                    except Exception:
-                        size = 0
+                    except Exception as e:
+                        log(f"❌ S3 object not found or inaccessible: {s3_key} ({e})", "ERROR")
+                        return {"error": f"S3 object not found: {s3_key}"}
                 presigned_url = await self._s3_call(
                     self.s3_client.generate_presigned_url,
                     'get_object',
