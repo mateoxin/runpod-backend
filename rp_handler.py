@@ -990,21 +990,23 @@ def get_real_services():
                         log(f"⚠️ Cleanup failed for temporary dataset {temp_dataset_path}: {e}", "WARN")
         
         async def start_generation(self, config):
-            """Start real image generation"""
+            """Start image generation and run it synchronously within the request.
+
+            Serverless jobs may terminate immediately after the handler returns.
+            Running generation synchronously ensures images are produced and uploaded
+            before the job exits.
+            """
             process_id = f"gen_{uuid.uuid4().hex[:12]}"
-            
+
             try:
-                # Add to process tracking  
+                # Add to process tracking
                 add_process(process_id, "generation", "starting", {"config": config})
                 log(f"🖼️ Real generation started: {process_id}", "INFO")
-                
-                # For now, simple placeholder - you can extend this with actual Stable Diffusion
-                threading.Thread(
-                    target=self._run_generation_background,
-                    args=(process_id, config),
-                    daemon=True
-                ).start()
-                
+
+                # Run the generation pipeline in a worker thread and wait for completion
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._run_generation_background, process_id, config)
+
                 return process_id
             except Exception as e:
                 log(f"❌ Generation start failed: {e}", "ERROR")
