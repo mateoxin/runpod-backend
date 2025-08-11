@@ -124,6 +124,7 @@ class UploadTrainingData(BaseModel):
     training_name: str = Field(..., min_length=1, max_length=100, pattern="^[a-zA-Z0-9_-]+$")
     trigger_word: Optional[str] = Field("", max_length=100)
     cleanup_existing: Optional[bool] = True
+    dataset_folder: str = Field(..., min_length=1, max_length=150, pattern="^[a-zA-Z0-9._-]+$")
     files: List[FileUpload] = Field(..., min_items=1, max_items=MAX_FILES_PER_UPLOAD)
     
     @validator('files')
@@ -196,6 +197,10 @@ class LoRAModelsRequest(BaseModel):
     """Validates LoRA models list request"""
     type: Literal["lora", "list_models"]
 
+class ListDatasetFoldersRequest(BaseModel):
+    """Validates dataset folders listing request"""
+    type: Literal["list_dataset_folders"]
+
 # Union type for all requests
 RequestTypes = Union[
     TrainingConfig,
@@ -205,6 +210,7 @@ RequestTypes = Union[
     BulkDownloadRequest,
     DownloadFileRequest,
     ListFilesRequest,
+    ListDatasetFoldersRequest,
     HealthCheckRequest,
     ProcessListRequest,
     LoRAModelsRequest
@@ -236,6 +242,7 @@ def validate_request(job_input: Dict[str, Any]) -> RequestTypes:
         "bulk_download": BulkDownloadRequest,
         "download_file": DownloadFileRequest,
         "list_files": ListFilesRequest,
+        "list_dataset_folders": ListDatasetFoldersRequest,
         "health": HealthCheckRequest,
         "processes": ProcessListRequest,
         "lora": LoRAModelsRequest,

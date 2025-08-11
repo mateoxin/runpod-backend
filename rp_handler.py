@@ -1292,12 +1292,18 @@ def get_real_services():
         async def health_check(self):
             return "healthy"
         
-        async def cleanup_dataset_folder(self):
-            """Delete all files under the fixed dataset prefix in S3."""
+        async def cleanup_dataset_folder(self, subfolder: Optional[str] = None):
+            """Delete files under dataset prefix in S3.
+            When subfolder provided, only that folder is cleaned; otherwise entire dataset/ prefix.
+            """
             if not self.s3_client:
                 raise Exception("S3 client not available")
             try:
-                s3_prefix = f"{self.prefix}/dataset/"
+                safe_sub = None
+                if isinstance(subfolder, str) and subfolder.strip():
+                    # Basic sanitization (allow alnum, dash, underscore, dot)
+                    safe_sub = ''.join([c for c in subfolder.strip() if c.isalnum() or c in ('-', '_', '.')])
+                s3_prefix = f"{self.prefix}/dataset/" if not safe_sub else f"{self.prefix}/dataset/{safe_sub}/"
                 log(f"🧹 Cleaning up S3 dataset folder: {s3_prefix}", "INFO")
                 continuation_token = None
                 total_deleted = 0
@@ -1396,14 +1402,17 @@ def get_real_services():
                 log(f"❌ Failed to delete results of type '{result_type}': {e}", "ERROR")
                 return {"deleted": 0, "found": 0, "error": str(e)}
         
-        async def upload_dataset_to_s3(self, training_name: str, files: list) -> str:
-            """Upload training dataset files to S3"""
+        async def upload_dataset_to_s3(self, training_name: str, files: list, dataset_folder: str) -> str:
+            """Upload training dataset files to S3 under dataset/<dataset_folder>"""
             if not self.s3_client:
                 raise Exception("S3 client not available")
             
             try:
-                # Fixed dataset path (singular): lora-dashboard/dataset
-                s3_path = f"{self.prefix}/dataset"
+                # Use provided dataset folder under dataset/
+                safe_folder = ''.join([c for c in (dataset_folder or '').strip() if c.isalnum() or c in ('-', '_', '.')])
+                if not safe_folder:
+                    raise Exception("Invalid dataset folder")
+                s3_path = f"{self.prefix}/dataset/{safe_folder}"
                 uploaded_files = []
                 log(f"📤 Uploading dataset to S3: {s3_path} | Files: {len(files)}", "INFO")
                 
@@ -1435,7 +1444,7 @@ def get_real_services():
                 log(f"❌ S3 dataset upload failed: {e}", "ERROR")
                 raise
         
-        async def upload_training_files(self, files: list) -> dict:
+        async def upload_training_files(self, files: list, dataset_folder: str) -> dict:
             """Compatibility wrapper to upload training files batch.
             Uses enhanced batch uploader when available, otherwise falls back to upload_dataset_to_s3.
             Returns metadata including created S3 path and count of uploaded files."""
@@ -1447,15 +1456,18 @@ def get_real_services():
                 if ENHANCED_IMPORTS:
                     try:
                         from storage_utils import S3StorageManager
-                        # Fixed dataset path
-                        s3_prefix = f"{self.prefix}/dataset"
+                        # Dataset subfolder prefix
+                        safe_folder = ''.join([c for c in (dataset_folder or '').strip() if c.isalnum() or c in ('-', '_', '.')])
+                        if not safe_folder:
+                            raise Exception("Invalid dataset folder")
+                        s3_prefix = f"{self.prefix}/dataset/{safe_folder}"
                         manager = S3StorageManager()
                         uploaded_keys = await manager.batch_upload_files(files, s3_prefix)
                         return {"training_name": training_name, "s3_path": s3_prefix, "files": len(uploaded_keys)}
                     except Exception as e:
                         log(f"⚠️ Enhanced batch upload failed, falling back: {e}", "WARN")
                 # Fallback
-                s3_path = await self.upload_dataset_to_s3(training_name, files)
+                s3_path = await self.upload_dataset_to_s3(training_name, files, dataset_folder)
                 return {"training_name": training_name, "s3_path": s3_path, "files": len(files)}
             except Exception as e:
                 log(f"❌ upload_training_files error: {e}", "ERROR")
@@ -1969,7 +1981,8 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
             "bulk_download": handle_bulk_download,
             "list_files": handle_list_files,
             "download_file": handle_download_file,
-            "delete_results": handle_delete_results
+            "delete_results": handle_delete_results,
+            "list_dataset_folders": (lambda x: handle_list_dataset_folders(x))
         }
         
         # Route to appropriate handler
@@ -2315,11 +2328,14 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
         training_name = job_input.get("training_name", f"training_{int(datetime.now().timestamp())}")
         trigger_word = job_input.get("trigger_word", "")
         cleanup_existing = job_input.get("cleanup_existing", True)
+        dataset_folder = (job_input.get("dataset_folder") or "").strip()
         files_data = job_input.get("files", [])
         
         # Basic validation
         if not files_data:
             return {"error": "No files provided", "request_id": request_id}
+        if not dataset_folder:
+            return {"error": "dataset_folder is required", "request_id": request_id}
         
         if not _storage_service:
             return {"error": "Storage service not initialized", "request_id": request_id}
@@ -2426,7 +2442,7 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
         if cleanup_existing and _storage_service:
             try:
                 if hasattr(_storage_service, 'cleanup_dataset_folder'):
-                    await _storage_service.cleanup_dataset_folder()
+                    await _storage_service.cleanup_dataset_folder(dataset_folder)
                 else:
                     log("⚠️ Cleanup method not available on storage service", "WARN")
             except Exception as e:
@@ -2447,15 +2463,15 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                     
                     if batch_start == 0:
                         # First batch creates the S3 path
-                        s3_path = await _storage_service.upload_dataset_to_s3(training_name, batch)
+                        s3_path = await _storage_service.upload_dataset_to_s3(training_name, batch, dataset_folder)
                     else:
                         # Subsequent batches append to existing path
-                        await _storage_service.upload_dataset_to_s3(training_name, batch)
+                        await _storage_service.upload_dataset_to_s3(training_name, batch, dataset_folder)
                     
                     log(f"📦 Uploaded batch {batch_start//batch_size + 1}/{(len(uploaded_files) + batch_size - 1)//batch_size}", "INFO")
             else:
                 # Fallback to single upload
-                s3_path = await _storage_service.upload_dataset_to_s3(training_name, uploaded_files)
+                s3_path = await _storage_service.upload_dataset_to_s3(training_name, uploaded_files, dataset_folder)
             
             log(f"✅ Dataset uploaded to S3: {s3_path}", "INFO")
             
@@ -2479,7 +2495,7 @@ async def handle_upload_training_data(job_input: Dict[str, Any], request_id: str
                 "filename": "_training_info.json",
                 "content": info_b64
             }
-            await _storage_service.upload_dataset_to_s3(training_name, [info_file])
+            await _storage_service.upload_dataset_to_s3(training_name, [info_file], dataset_folder)
             
         except Exception as e:
             log(f"❌ S3 upload failed: {e}", "ERROR")
@@ -2721,6 +2737,50 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         log(f"❌ List files error: {e}", "ERROR")
         return {"error": f"Failed to list files: {str(e)}"}
+
+async def handle_list_dataset_folders(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """List top-level folders under s3://<bucket>/<prefix>/dataset/"""
+    try:
+        if not _storage_service or not hasattr(_storage_service, 's3_client') or not _storage_service.s3_client:
+            return {"error": "Storage service not initialized"}
+
+        bucket = _storage_service.bucket_name if _storage_service else S3_BUCKET
+        base_prefix = f"{S3_PREFIX}/dataset/"
+        folders = set()
+
+        continuation_token = None
+        while True:
+            params = {
+                'Bucket': bucket,
+                'Prefix': base_prefix,
+                'Delimiter': '/'
+            }
+            if continuation_token:
+                params['ContinuationToken'] = continuation_token
+            response = _storage_service.s3_client.list_objects_v2(**params)
+
+            # CommonPrefixes holds subfolder "prefixes" when Delimiter is used
+            for cp in response.get('CommonPrefixes', []) or []:
+                prefix = cp.get('Prefix', '')
+                # Extract folder name between base_prefix and trailing '/'
+                if prefix.startswith(base_prefix):
+                    remainder = prefix[len(base_prefix):]
+                    folder_name = remainder[:-1] if remainder.endswith('/') else remainder
+                    if folder_name:
+                        folders.add(folder_name)
+
+            if response.get('IsTruncated'):
+                continuation_token = response.get('NextContinuationToken')
+            else:
+                break
+
+        return {
+            'folders': sorted(list(folders)),
+            'prefix': f"s3://{bucket}/{base_prefix[:-1]}"
+        }
+    except Exception as e:
+        log(f"❌ list_dataset_folders error: {e}", "ERROR")
+        return {"error": f"Failed to list dataset folders: {str(e)}"}
 
 async def handle_delete_results(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle deletion of results by type across all processes in S3."""

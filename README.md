@@ -100,6 +100,7 @@ Wywołujemy Endpoint z `{ "input": { ... } }`. Obsługiwane typy:
 - `processes`, `process_status`, `cancel`
 - `upload_training_data` — pliki w base64
 - `bulk_download`, `list_files`, `download_file`
+- `list_dataset_folders` — lista folderów pod `s3://<bucket>/<prefix>/dataset/`
 
 Przykład `Test Input` (train):
 
@@ -112,19 +113,29 @@ Przykład `Test Input` (train):
 }
 ```
 
-Przykład upload datasetu:
+Przykład upload datasetu (do wybranego folderu w `dataset/`):
 
 ```json
 {
   "input": {
     "type": "upload_training_data",
     "training_name": "my-training",
+    "dataset_folder": "matt_2025_08_10",
     "files": [
       { "filename": "img_001.jpg", "content": "<base64>", "content_type": "image/jpeg" },
       { "filename": "img_001.txt", "content": "<base64>", "content_type": "text/plain" }
     ]
   }
 }
+Przykład listy folderów datasetu:
+
+```json
+{
+  "input": {
+    "type": "list_dataset_folders"
+  }
+}
+```
 ```
 
 ## 📝 Logging
