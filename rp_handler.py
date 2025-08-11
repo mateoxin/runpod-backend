@@ -1131,18 +1131,59 @@ def get_real_services():
                 generation_time = 2.5 * num_images  # Simulate 2.5s per image
                 time.sleep(min(generation_time, 30))  # Cap at 30s for placeholder
                 
-                # Create placeholder output files
+                # Create real image outputs (PNG). Fallback to .txt if Pillow unavailable
                 generated_files = []
-                for i in range(num_images):
-                    # In real implementation, these would be .png files
-                    placeholder_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.txt")
-                    with open(placeholder_path, 'w') as f:
-                        f.write(f"""Generated Image {i+1}
-                        Process ID: {process_id}
-                        Timestamp: {datetime.now().isoformat()}
-                        Config: {config[:200]}...
-                        """)
-                    generated_files.append(placeholder_path)
+                try:
+                    from PIL import Image, ImageDraw, ImageFont  # type: ignore
+
+                    # Infer width/height from config if present
+                    width, height = 512, 512
+                    try:
+                        cfg = config_data.get('config', {}) if isinstance(config_data, dict) else {}
+                        processes = cfg.get('process', []) if isinstance(cfg, dict) else []
+                        if isinstance(processes, list):
+                            for step in processes:
+                                if isinstance(step, dict) and 'generate' in step:
+                                    gen_cfg = step.get('generate', {}) or {}
+                                    if 'width' in gen_cfg:
+                                        width = int(gen_cfg.get('width') or width)
+                                    if 'height' in gen_cfg:
+                                        height = int(gen_cfg.get('height') or height)
+                                    break
+                    except Exception:
+                        pass
+
+                    for i in range(num_images):
+                        image = Image.new('RGB', (width, height), color=(30, 30, 30))
+                        draw = ImageDraw.Draw(image)
+                        # Compose simple overlay text for traceability
+                        overlay = (
+                            f"Generated {i+1}\n"
+                            f"Process: {process_id}\n"
+                            f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        try:
+                            font = ImageFont.load_default()
+                        except Exception:
+                            font = None  # let Pillow pick a basic font
+                        draw.multiline_text((20, 20), overlay, fill=(220, 220, 220), font=font, spacing=4)
+
+                        out_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.png")
+                        image.save(out_path, format='PNG')
+                        generated_files.append(out_path)
+
+                    log(f"🖼️ Created {len(generated_files)} PNG images", "INFO")
+                except Exception as e:
+                    log(f"⚠️ PIL not available or PNG generation failed ({e}), falling back to .txt placeholders", "WARN")
+                    for i in range(num_images):
+                        placeholder_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.txt")
+                        with open(placeholder_path, 'w') as f:
+                            f.write(f"""Generated Image {i+1}
+                            Process ID: {process_id}
+                            Timestamp: {datetime.now().isoformat()}
+                            Config: {config[:200]}...
+                            """)
+                        generated_files.append(placeholder_path)
                 
                 log(f"🎆 Generated {len(generated_files)} images", "INFO")
                 
@@ -1914,10 +1955,40 @@ async def async_handler(event: Dict[str, Any]) -> Dict[str, Any]:
     runpod_job_id = os.environ.get('RUNPOD_JOB_ID', 'local')
     
     try:
-        # Initialize services if needed
+        # Extract input early to allow fast-path handling without heavy init
+        job_input = event.get("input", {})
+
+        # Determine job type as early as possible
+        pre_job_type = job_input.get("type")
+        if not pre_job_type and job_input.get("prompt"):
+            job_input["type"] = "generate"
+            pre_job_type = "generate"
+
+        # Fast-path: lightweight operations that should not trigger environment setup
+        FAST_TYPES = {"list_dataset_folders"}
+        if pre_job_type in FAST_TYPES:
+            log(f"⚡ Fast-path handling for {pre_job_type}", "INFO")
+            start_time_fast = time.time()
+            # Route directly to lightweight handlers that do not require service initialization
+            if pre_job_type == "list_dataset_folders":
+                response = await handle_list_dataset_folders(job_input)
+            else:
+                response = {"error": f"Unsupported fast-path type: {pre_job_type}"}
+
+            # Attach metadata and logging similar to the standard flow
+            response["request_id"] = request_id
+            response["worker_id"] = os.environ.get('RUNPOD_POD_ID', 'local')
+            response["runpod_job_id"] = runpod_job_id
+
+            status = "success" if not response.get("error") else "error"
+            duration = time.time() - start_time_fast
+            log(f"✅ Fast-path request completed: {status} | Duration: {duration:.3f}s | Request ID: {request_id}", "INFO")
+            return response
+
+        # Initialize services only for non-fast operations
         await initialize_services()
         
-        # Extract and validate input
+        # Extract and validate input (again to normalize via validators)
         job_input = event.get("input", {})
         
         # Enhanced validation with Pydantic if available
@@ -2741,10 +2812,42 @@ async def handle_list_files(job_input: Dict[str, Any]) -> Dict[str, Any]:
 async def handle_list_dataset_folders(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """List top-level folders under s3://<bucket>/<prefix>/dataset/"""
     try:
-        if not _storage_service or not hasattr(_storage_service, 's3_client') or not _storage_service.s3_client:
-            return {"error": "Storage service not initialized"}
+        # Prefer existing storage service if already initialized
+        if _storage_service and hasattr(_storage_service, 's3_client') and _storage_service.s3_client:
+            client = _storage_service.s3_client
+            bucket = _storage_service.bucket_name
+        else:
+            # Lightweight fallback: direct boto3 client without full service initialization
+            if not S3_AVAILABLE or boto3 is None:
+                return {"error": "S3 client not available"}
 
-        bucket = _storage_service.bucket_name if _storage_service else S3_BUCKET
+            aws_access_key_id = os.environ.get('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+
+            boto_cfg = None
+            try:
+                if BotoConfig is not None:
+                    boto_cfg = BotoConfig(
+                        s3={'addressing_style': 'path'},
+                        retries={'max_attempts': 3}
+                    )
+            except Exception:
+                boto_cfg = None
+
+            client_kwargs = {
+                'service_name': 's3',
+                'endpoint_url': S3_ENDPOINT_URL,
+                'region_name': S3_REGION
+            }
+            if boto_cfg is not None:
+                client_kwargs['config'] = boto_cfg
+            if aws_access_key_id and aws_secret_access_key:
+                client_kwargs['aws_access_key_id'] = aws_access_key_id
+                client_kwargs['aws_secret_access_key'] = aws_secret_access_key
+
+            client = boto3.client(**client_kwargs)
+            bucket = S3_BUCKET
+
         base_prefix = f"{S3_PREFIX}/dataset/"
         folders = set()
 
@@ -2757,12 +2860,11 @@ async def handle_list_dataset_folders(job_input: Dict[str, Any]) -> Dict[str, An
             }
             if continuation_token:
                 params['ContinuationToken'] = continuation_token
-            response = _storage_service.s3_client.list_objects_v2(**params)
 
-            # CommonPrefixes holds subfolder "prefixes" when Delimiter is used
+            response = client.list_objects_v2(**params)
+
             for cp in response.get('CommonPrefixes', []) or []:
                 prefix = cp.get('Prefix', '')
-                # Extract folder name between base_prefix and trailing '/'
                 if prefix.startswith(base_prefix):
                     remainder = prefix[len(base_prefix):]
                     folder_name = remainder[:-1] if remainder.endswith('/') else remainder
@@ -2774,10 +2876,7 @@ async def handle_list_dataset_folders(job_input: Dict[str, Any]) -> Dict[str, An
             else:
                 break
 
-        return {
-            'folders': sorted(list(folders)),
-            'prefix': f"s3://{bucket}/{base_prefix[:-1]}"
-        }
+        return {'folders': sorted(list(folders)), 'prefix': f"s3://{bucket}/{base_prefix[:-1]}"}
     except Exception as e:
         log(f"❌ list_dataset_folders error: {e}", "ERROR")
         return {"error": f"Failed to list dataset folders: {str(e)}"}
