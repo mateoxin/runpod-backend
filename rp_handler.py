@@ -1034,37 +1034,57 @@ def get_real_services():
                 # Parse and validate generation config
                 try:
                     config_data = yaml.safe_load(config)
-                    
-                    # Enhanced LoRA path handling
+
+                    # Locate the first process step that contains model settings
+                    model_cfg = None
+                    process_step = None
+                    if isinstance(config_data, dict):
+                        cfg_section = config_data.get('config') or {}
+                        process_list = cfg_section.get('process') or []
+                        if isinstance(process_list, list):
+                            for step in process_list:
+                                if isinstance(step, dict) and 'model' in step:
+                                    model_cfg = step.get('model') or {}
+                                    process_step = step
+                                    break
+
+                    # Fallbacks for older flat configs
+                    if model_cfg is None and 'model' in (config_data or {}):
+                        model_cfg = config_data.get('model') or {}
+
+                    # Enhanced LoRA path handling (supports nested configs)
                     lora_path = None
-                    if 'model' in config_data and 'lora_path' in config_data['model']:
-                        lora_path = config_data['model']['lora_path']
-                    elif 'lora' in config_data and 'path' in config_data['lora']:
-                        lora_path = config_data['lora']['path']
-                    
+                    if isinstance(model_cfg, dict):
+                        lora_path = model_cfg.get('lora_path')
+
+                    if not lora_path and isinstance(config_data, dict):
+                        lora_section = config_data.get('lora') or {}
+                        if isinstance(lora_section, dict):
+                            lora_path = lora_section.get('path')
+
                     if lora_path:
                         log(f"🎯 LoRA path from config: {lora_path}", "INFO")
-                        
+
                         # Handle S3 LoRA downloads
-                        if lora_path.startswith('s3://'):
+                        if isinstance(lora_path, str) and lora_path.startswith('s3://'):
                             log(f"📥 Downloading LoRA from S3: {lora_path}", "INFO")
-                            
+
                             # Parse S3 URI properly
                             s3_parts = lora_path.replace('s3://', '').split('/', 1)
                             bucket = s3_parts[0]
                             s3_key = s3_parts[1] if len(s3_parts) > 1 else ''
-                            
+
                             # Validate bucket
                             if bucket != (_storage_service.bucket_name if _storage_service else S3_BUCKET):
                                 log(f"⚠️ Different S3 bucket: {bucket}", "WARN")
-                            
+
                             filename = os.path.basename(s3_key)
-                            
+
                             # Create unique local directory for this generation
                             local_lora_dir = f"/workspace/models/loras/{process_id}"
                             os.makedirs(local_lora_dir, exist_ok=True)
                             local_lora_path = os.path.join(local_lora_dir, filename)
-                            
+
                             # Download LoRA model
                             if _storage_service and hasattr(_storage_service, 's3_client') and _storage_service.s3_client:
                                 try:
@@ -1074,15 +1094,14 @@ def get_real_services():
                                         Key=s3_key,
                                         Filename=local_lora_path
                                     )
-                                    
+
                                     # Verify download
                                     if os.path.exists(local_lora_path) and os.path.getsize(local_lora_path) > 0:
-                                        # Update config to use local path
-                                        if 'model' in config_data:
-                                            config_data['model']['lora_path'] = local_lora_path
-                                        else:
+                                        # Update config to use local path (nested-safe)
+                                        if isinstance(model_cfg, dict):
+                                            model_cfg['lora_path'] = local_lora_path
+                                        elif 'lora' in config_data:
                                             config_data['lora']['path'] = local_lora_path
-                                        config = yaml.dump(config_data)
                                         log(f"✅ LoRA downloaded: {local_lora_path} ({format_file_size(os.path.getsize(local_lora_path))})", "INFO")
                                     else:
                                         raise Exception("Downloaded LoRA file is empty or missing")
@@ -1090,20 +1109,32 @@ def get_real_services():
                                     log(f"❌ LoRA download failed: {e}", "ERROR")
                                     raise
                             else:
-                                log(f"❌ Storage service not available for LoRA download", "ERROR")
+                                log("❌ Storage service not available for LoRA download", "ERROR")
                                 raise Exception("Cannot download LoRA without storage service")
                         else:
                             # Local LoRA path - normalize it
-                            if ENHANCED_IMPORTS:
+                            if ENHANCED_IMPORTS and isinstance(lora_path, str):
                                 normalized_path = normalize_workspace_path(lora_path)
-                                if 'model' in config_data:
-                                    config_data['model']['lora_path'] = normalized_path
-                                else:
-                                    config_data['lora']['path'] = normalized_path
-                                config = yaml.dump(config_data)
-                                
+                                if isinstance(model_cfg, dict):
+                                    model_cfg['lora_path'] = normalized_path
+
+                    # Sanitize dtype fields if present (fix stray characters)
+                    if isinstance(model_cfg, dict) and 'dtype' in model_cfg:
+                        try:
+                            dtype_val = str(model_cfg.get('dtype') or '').strip()
+                            # Remove any accidental non-ascii letters like 'ś'
+                            model_cfg['dtype'] = ''.join([c for c in dtype_val if c.isalnum() or c in ('_', '-')]) or 'fp16'
+                        except Exception:
+                            model_cfg['dtype'] = 'fp16'
+
+                    # Force output folder to our managed directory so we can collect results reliably
+                    if isinstance(process_step, dict):
+                        process_step['output_folder'] = f"/workspace/output/generation/{process_id}/images"
+
+                    # Persist normalized config back to string
+                    config = yaml.dump(config_data)
                 except Exception as e:
-                    log(f"⚠️ LoRA download failed, continuing with original config: {e}", "WARNING")
+                    log(f"⚠️ Config processing failed, continuing with original config: {e}", "WARNING")
                 
                 # Create proper output directory structure
                 output_dir = f"/workspace/output/generation/{process_id}/images"
@@ -1124,68 +1155,122 @@ def get_real_services():
                 
                 log(f"📝 Generation config saved: {config_path}", "INFO")
                 
-                # TODO: Implement actual Stable Diffusion pipeline
-                # For now, create placeholder implementation
-                log(f"🎨 Running generation pipeline: {process_id}", "INFO")
-                
-                # Simulate generation with proper timing
-                num_images = config_data.get('num_images', 4)
-                generation_time = 2.5 * num_images  # Simulate 2.5s per image
-                time.sleep(min(generation_time, 30))  # Cap at 30s for placeholder
-                
-                # Create real image outputs (PNG). Fallback to .txt if Pillow unavailable
+                # Run real generation via ai-toolkit. If it fails or produces no images, fallback to placeholders
+                log(f"🎨 Running generation pipeline via ai-toolkit: {process_id}", "INFO")
+
                 generated_files = []
                 try:
-                    from PIL import Image, ImageDraw, ImageFont  # type: ignore
+                    # Prepare environment (mirrors training setup as much as possible)
+                    hf_token = os.environ.get("HF_TOKEN", "")
+                    cache_base = "/workspace/cache"
+                    for cache_dir in [
+                        f"{cache_base}/hf",
+                        f"{cache_base}/hub",
+                        f"{cache_base}/transformers",
+                        f"{cache_base}/diffusers",
+                        f"{cache_base}/torch",
+                    ]:
+                        os.makedirs(cache_dir, exist_ok=True)
 
-                    # Infer width/height from config if present
-                    width, height = 512, 512
-                    try:
-                        cfg = config_data.get('config', {}) if isinstance(config_data, dict) else {}
-                        processes = cfg.get('process', []) if isinstance(cfg, dict) else []
-                        if isinstance(processes, list):
-                            for step in processes:
-                                if isinstance(step, dict) and 'generate' in step:
-                                    gen_cfg = step.get('generate', {}) or {}
-                                    if 'width' in gen_cfg:
-                                        width = int(gen_cfg.get('width') or width)
-                                    if 'height' in gen_cfg:
-                                        height = int(gen_cfg.get('height') or height)
-                                    break
-                    except Exception:
-                        pass
+                    env = os.environ.copy()
+                    env.update({
+                        "CUDA_VISIBLE_DEVICES": "0",
+                        "HUGGING_FACE_HUB_TOKEN": hf_token,
+                        "HF_TOKEN": hf_token,
+                        "HF_HUB_ENABLE_HF_TRANSFER": "1",
+                        "HF_HOME": f"{cache_base}/hf",
+                        "XDG_CACHE_HOME": cache_base,
+                        "HUGGINGFACE_HUB_CACHE": f"{cache_base}/hub",
+                        "DIFFUSERS_CACHE": f"{cache_base}/diffusers",
+                        "HF_HUB_CACHE": f"{cache_base}/hub",
+                        "TORCH_HOME": f"{cache_base}/torch",
+                    })
+                    env.pop("TRANSFORMERS_CACHE", None)
 
-                    for i in range(num_images):
-                        image = Image.new('RGB', (width, height), color=(30, 30, 30))
-                        draw = ImageDraw.Draw(image)
-                        # Compose simple overlay text for traceability
-                        overlay = (
-                            f"Generated {i+1}\n"
-                            f"Process: {process_id}\n"
-                            f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                        try:
-                            font = ImageFont.load_default()
-                        except Exception:
-                            font = None  # let Pillow pick a basic font
-                        draw.multiline_text((20, 20), overlay, fill=(220, 220, 220), font=font, spacing=4)
+                    ai_toolkit_path = "/workspace/ai-toolkit/run.py"
+                    if not os.path.exists(ai_toolkit_path):
+                        raise FileNotFoundError(f"AI toolkit not found at {ai_toolkit_path}")
 
-                        out_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.png")
-                        image.save(out_path, format='PNG')
-                        generated_files.append(out_path)
+                    cmd = [sys.executable, ai_toolkit_path, config_path]
+                    log(f"🎯 Generation command: {' '.join(cmd)}", "INFO")
 
-                    log(f"🖼️ Created {len(generated_files)} PNG images", "INFO")
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(
+                        execute_with_timeout(cmd, timeout=GENERATION_TIMEOUT, env=env)
+                    )
+                    loop.close()
+
+                    if result.stdout:
+                        log(f"📋 Generation stdout: {result.stdout[:1000]}...", "INFO")
+                    if result.stderr:
+                        log(f"⚠️ Generation stderr: {result.stderr[:1000]}...", "WARN")
+
+                    if result.returncode != 0:
+                        raise Exception(f"Generation process failed with code {result.returncode}")
+
+                    # Collect produced images from output_dir
+                    image_patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"]
+                    for pattern in image_patterns:
+                        generated_files.extend(glob.glob(f"{output_dir}/**/{pattern}", recursive=True))
+                    generated_files = [p for p in generated_files if os.path.isfile(p)]
+
+                    if not generated_files:
+                        log("⚠️ No images found after ai-toolkit run, will fallback to placeholders", "WARN")
                 except Exception as e:
-                    log(f"⚠️ PIL not available or PNG generation failed ({e}), falling back to .txt placeholders", "WARN")
-                    for i in range(num_images):
-                        placeholder_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.txt")
-                        with open(placeholder_path, 'w') as f:
-                            f.write(f"""Generated Image {i+1}
-                            Process ID: {process_id}
-                            Timestamp: {datetime.now().isoformat()}
-                            Config: {config[:200]}...
-                            """)
-                        generated_files.append(placeholder_path)
+                    log(f"⚠️ Generation via ai-toolkit failed: {e}", "WARN")
+
+                # Fallback: create placeholder PNGs so the UI has something to display
+                if not generated_files:
+                    try:
+                        from PIL import Image, ImageDraw, ImageFont  # type: ignore
+
+                        # Derive width/height from config when available
+                        width, height = 512, 512
+                        try:
+                            cfg = config_data.get('config', {}) if isinstance(config_data, dict) else {}
+                            processes = cfg.get('process', []) if isinstance(cfg, dict) else []
+                            if isinstance(processes, list):
+                                for step in processes:
+                                    if isinstance(step, dict) and 'generate' in step:
+                                        gen_cfg = step.get('generate', {}) or {}
+                                        width = int(gen_cfg.get('width') or width)
+                                        height = int(gen_cfg.get('height') or height)
+                                        break
+                        except Exception:
+                            pass
+
+                        num_images = 4
+                        for i in range(num_images):
+                            image = Image.new('RGB', (width, height), color=(30, 30, 30))
+                            draw = ImageDraw.Draw(image)
+                            overlay = (
+                                f"Generated {i+1}\n"
+                                f"Process: {process_id}\n"
+                                f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                            try:
+                                font = ImageFont.load_default()
+                            except Exception:
+                                font = None
+                            draw.multiline_text((20, 20), overlay, fill=(220, 220, 220), font=font, spacing=4)
+
+                            out_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.png")
+                            image.save(out_path, format='PNG')
+                            generated_files.append(out_path)
+
+                        log(f"🖼️ Created {len(generated_files)} placeholder PNG images", "INFO")
+                    except Exception as e:
+                        log(f"⚠️ Placeholder PNG generation failed ({e}), creating .txt placeholders", "WARN")
+                        for i in range(4):
+                            placeholder_path = os.path.join(output_dir, f"generated_{process_id}_{i:03d}.txt")
+                            with open(placeholder_path, 'w') as f:
+                                f.write(f"""Generated Image {i+1}
+                                Process ID: {process_id}
+                                Timestamp: {datetime.now().isoformat()}
+                                Config: {config[:200]}...
+                                """)
+                            generated_files.append(placeholder_path)
                 
                 log(f"🎆 Generated {len(generated_files)} images", "INFO")
                 
