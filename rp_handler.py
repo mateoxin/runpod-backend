@@ -128,7 +128,7 @@ logger = logging.getLogger(__name__)
 
 # Timeout configurations
 TRAINING_TIMEOUT = int(os.environ.get('TRAINING_TIMEOUT', 7200))  # 2 hours default
-GENERATION_TIMEOUT = int(os.environ.get('GENERATION_TIMEOUT', 600))  # 10 minutes default
+GENERATION_TIMEOUT = int(os.environ.get('GENERATION_TIMEOUT', 1800))  # 30 minutes default
 MAX_RETRIES = int(os.environ.get('MAX_RETRIES', 3))
 
 # Enhanced process management with S3 synchronization
