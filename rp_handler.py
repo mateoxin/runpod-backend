@@ -535,6 +535,137 @@ def get_real_services():
         
         async def initialize(self):
             log("🚀 Real Process Manager ready for AI operations", "INFO")
+
+        def _sanitize_subject_id(self, value: str, fallback: str) -> str:
+            try:
+                cleaned = ''.join(ch if (str(ch).isalnum() or ch in ('-', '_')) else '_' for ch in str(value))
+                cleaned = cleaned.strip('_')
+                return cleaned or fallback
+            except Exception:
+                return fallback
+
+        def _derive_subject_id(self, config_data: Dict[str, Any], process_id: str) -> str:
+            """Derive subject_id used as the folder under results/.
+            Priority:
+            1) explicit subject_id in YAML (top-level or under config)
+            2) dataset.folder_path → last segment after dataset/ or datasets/
+            3) lora_path S3 under results/<id>/lora/
+            4) fallback to process_id
+            """
+            fallback = process_id
+            # 1) explicit
+            try:
+                if isinstance(config_data, dict):
+                    if config_data.get('subject_id'):
+                        return self._sanitize_subject_id(config_data.get('subject_id'), fallback)
+                    cfg = config_data.get('config') or {}
+                    if isinstance(cfg, dict) and cfg.get('subject_id'):
+                        return self._sanitize_subject_id(cfg.get('subject_id'), fallback)
+            except Exception:
+                pass
+
+            # Helpers
+            def from_dataset_path(path_str: str) -> Optional[str]:
+                try:
+                    if not isinstance(path_str, str):
+                        return None
+                    if path_str.startswith('s3://'):
+                        # s3://bucket/key...
+                        parts = path_str.replace('s3://', '').split('/', 1)
+                        key = parts[1] if len(parts) > 1 else ''
+                        # Strip prefix if present
+                        prefix = f"{self.prefix}/"
+                        if key.startswith(prefix):
+                            key = key[len(prefix):]
+                        for token in ('dataset/', 'datasets/'):
+                            if key.startswith(token):
+                                rest = key[len(token):]
+                                candidate = rest.split('/')[0] if rest else ''
+                                if candidate:
+                                    return self._sanitize_subject_id(candidate, fallback)
+                    else:
+                        # local path → last segment
+                        segs = path_str.rstrip('/').split('/')
+                        if segs:
+                            return self._sanitize_subject_id(segs[-1], fallback)
+                except Exception:
+                    return None
+                return None
+
+            def from_lora_path(path_str: str) -> Optional[str]:
+                try:
+                    if isinstance(path_str, str) and path_str.startswith('s3://') and '/results/' in path_str and '/lora/' in path_str:
+                        after = path_str.split('/results/', 1)[1]
+                        candidate = after.split('/', 1)[0]
+                        if candidate:
+                            return self._sanitize_subject_id(candidate, fallback)
+                except Exception:
+                    return None
+                return None
+
+            # 2) dataset.folder_path at various nesting levels
+            try:
+                cfg = config_data.get('config') if isinstance(config_data, dict) else {}
+                # top-level dataset(s)
+                dataset_cfg = None
+                if isinstance(cfg, dict):
+                    if isinstance(cfg.get('dataset'), dict) and cfg['dataset'].get('folder_path'):
+                        dataset_cfg = cfg['dataset']
+                    elif isinstance(cfg.get('datasets'), list) and cfg['datasets']:
+                        first = cfg['datasets'][0]
+                        if isinstance(first, dict) and first.get('folder_path'):
+                            dataset_cfg = first
+                if dataset_cfg and dataset_cfg.get('folder_path'):
+                    sid = from_dataset_path(dataset_cfg.get('folder_path'))
+                    if sid:
+                        return sid
+
+                # process-level dataset(s)
+                processes = cfg.get('process', []) if isinstance(cfg, dict) else []
+                if isinstance(processes, list):
+                    for step in processes:
+                        if isinstance(step, dict):
+                            if isinstance(step.get('dataset'), dict) and step['dataset'].get('folder_path'):
+                                sid = from_dataset_path(step['dataset'].get('folder_path'))
+                                if sid:
+                                    return sid
+                            elif isinstance(step.get('datasets'), list) and step['datasets']:
+                                first = step['datasets'][0]
+                                if isinstance(first, dict) and first.get('folder_path'):
+                                    sid = from_dataset_path(first.get('folder_path'))
+                                    if sid:
+                                        return sid
+            except Exception:
+                pass
+
+            # 3) lora_path from model section
+            try:
+                model_cfg = None
+                if isinstance(config_data, dict):
+                    cfg = config_data.get('config') or {}
+                    proc = cfg.get('process') or []
+                    if isinstance(proc, list):
+                        for step in proc:
+                            if isinstance(step, dict) and 'model' in step:
+                                model_cfg = step.get('model') or {}
+                                break
+                if model_cfg is None and isinstance(config_data, dict) and 'model' in config_data:
+                    model_cfg = config_data.get('model') or {}
+                lora_path = None
+                if isinstance(model_cfg, dict):
+                    lora_path = model_cfg.get('lora_path')
+                if not lora_path and isinstance(config_data, dict):
+                    lora = config_data.get('lora') or {}
+                    if isinstance(lora, dict):
+                        lora_path = lora.get('path')
+                sid = from_lora_path(lora_path) if lora_path else None
+                if sid:
+                    return sid
+            except Exception:
+                pass
+
+            # 4) fallback
+            return self._sanitize_subject_id(fallback, fallback)
         
         async def start_training(self, config):
             """Start real LoRA training with AI toolkit (synchronous for Serverless)"""
@@ -859,16 +990,21 @@ def get_real_services():
                         s3_output_path = None
                         if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
                             try:
-                                log(f"📤 Uploading LoRA results to S3: {process_id}", "INFO")
+                                # Determine subject_id for results placement
+                                try:
+                                    sid = self._derive_subject_id(config_data, process_id)
+                                except Exception:
+                                    sid = process_id
+                                log(f"📤 Uploading LoRA results to S3: subject_id={sid}", "INFO")
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
                                 loop.run_until_complete(
                                     _storage_service.upload_results_to_s3(
-                                        process_id, final_output_dir, 'lora'
+                                        sid, final_output_dir, 'lora'
                                     )
                                 )
                                 loop.close()
-                                s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{process_id}/lora/"
+                                s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{sid}/lora/"
                                 log(f"✅ LoRA results uploaded to S3: {s3_output_path}", "INFO")
                             except Exception as e:
                                 log(f"⚠️ Failed to upload LoRA to S3: {e}", "WARNING")
@@ -914,16 +1050,20 @@ def get_real_services():
 
                                 if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
                                     try:
-                                        log(f"📤 Uploading training samples to S3: {process_id} | Files: {len(collected_samples)}", "INFO")
+                                        try:
+                                            sid = self._derive_subject_id(config_data, process_id)
+                                        except Exception:
+                                            sid = process_id
+                                        log(f"📤 Uploading training samples to S3: subject_id={sid} | Files: {len(collected_samples)}", "INFO")
                                         loop = asyncio.new_event_loop()
                                         asyncio.set_event_loop(loop)
                                         loop.run_until_complete(
                                             _storage_service.upload_results_to_s3(
-                                                process_id, final_samples_dir, 'samples'
+                                                sid, final_samples_dir, 'samples'
                                             )
                                         )
                                         loop.close()
-                                        log(f"✅ Samples uploaded to S3: s3://{self.bucket_name}/{self.prefix}/results/{process_id}/samples/", "INFO")
+                                        log(f"✅ Samples uploaded to S3: s3://{self.bucket_name}/{self.prefix}/results/{sid}/samples/", "INFO")
                                     except Exception as e:
                                         log(f"⚠️ Failed to upload samples to S3: {e}", "WARNING")
                         except Exception as e:
@@ -1278,16 +1418,22 @@ def get_real_services():
                 s3_output_path = None
                 if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
                     try:
-                        log(f"📤 Uploading generation results to S3: {process_id}", "INFO")
+                        # Derive subject_id from config (lora_path/dataset/subject_id) for shared foldering
+                        try:
+                            cfg_data_for_sid = yaml.safe_load(config)
+                        except Exception:
+                            cfg_data_for_sid = None
+                        sid = self._derive_subject_id(cfg_data_for_sid or {}, process_id)
+                        log(f"📤 Uploading generation results to S3: subject_id={sid}", "INFO")
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(
                             _storage_service.upload_results_to_s3(
-                                process_id, output_dir, 'images'
+                                sid, output_dir, 'images'
                             )
                         )
                         loop.close()
-                        s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{process_id}/images/"
+                        s3_output_path = f"s3://{self.bucket_name}/{self.prefix}/results/{sid}/images/"
                         log(f"✅ Generation results uploaded to S3: {s3_output_path}", "INFO")
                     except Exception as e:
                         log(f"⚠️ Failed to upload generation results to S3: {e}", "WARNING")
@@ -1639,14 +1785,16 @@ def get_real_services():
                 raise
         
         async def upload_results_to_s3(self, process_id: str, local_path: str, result_type: str):
-            """Upload training/generation results to S3"""
+            """Upload training/generation results to S3
+            Note: 'process_id' here may represent 'subject_id' in the new convention.
+            """
             if not self.s3_client:
                 log("❌ S3 client not available, skipping upload", "WARNING")
                 return
             
             try:
                 s3_base_path = f"{self.prefix}/results/{process_id}/{result_type}"
-                log(f"📤 Starting results upload to S3 | process_id: {process_id} | type: {result_type} | source: {local_path}", "INFO")
+                log(f"📤 Starting results upload to S3 | subject_or_process_id: {process_id} | type: {result_type} | source: {local_path}", "INFO")
                 
                 if os.path.isfile(local_path):
                     # Single file
@@ -1771,6 +1919,7 @@ def get_real_services():
                 return None
             try:
                 if not s3_key:
+                    # In the new convention, process_id may be subject_id
                     s3_prefix = f"{self.prefix}/results/{process_id}/"
                     response = await self._s3_call(
                         self.s3_client.list_objects_v2,
@@ -1845,7 +1994,7 @@ def get_real_services():
                         s3_key = obj['Key']
                         key_parts = s3_key.replace(base_prefix, '').split('/')
                         if len(key_parts) >= 3:
-                            process_id = key_parts[0]
+                            process_id = key_parts[0]  # Now represents subject_id in the new convention
                             result_type = key_parts[1]
                             filename = '/'.join(key_parts[2:])
                             files.append({
