@@ -740,7 +740,8 @@ def get_real_services():
                                 log(f"⚠️ Different S3 bucket specified: {bucket}", "WARN")
                                 s3_dataset_path = dataset_path
                         else:
-                            s3_dataset_path = f"lora-dashboard/datasets/{dataset_path}"
+                            # Build S3 dataset path using configured prefix and unified 'dataset/' folder
+                            s3_dataset_path = f"{self.prefix}/dataset/{dataset_path}"
 
                         local_dataset_path = f"/workspace/training_data/{process_id}"
                         os.makedirs(local_dataset_path, exist_ok=True)
