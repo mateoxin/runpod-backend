@@ -708,6 +708,13 @@ def get_real_services():
                 try:
                     config_data = yaml.safe_load(config)
 
+                    # Derive subject_id before any in-place config normalization
+                    # so that dataset.folder_path still points to original S3 path
+                    try:
+                        subject_id_for_results = self._derive_subject_id(config_data, process_id)
+                    except Exception:
+                        subject_id_for_results = process_id
+
                     def resolve_and_download(ds_cfg: Dict[str, Any]) -> bool:
                         if not isinstance(ds_cfg, dict):
                             return False
@@ -990,11 +997,8 @@ def get_real_services():
                         s3_output_path = None
                         if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
                             try:
-                                # Determine subject_id for results placement
-                                try:
-                                    sid = self._derive_subject_id(config_data, process_id)
-                                except Exception:
-                                    sid = process_id
+                                # Use subject_id computed before dataset path normalization
+                                sid = subject_id_for_results or process_id
                                 log(f"📤 Uploading LoRA results to S3: subject_id={sid}", "INFO")
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
@@ -1050,10 +1054,8 @@ def get_real_services():
 
                                 if _storage_service and hasattr(_storage_service, 'upload_results_to_s3'):
                                     try:
-                                        try:
-                                            sid = self._derive_subject_id(config_data, process_id)
-                                        except Exception:
-                                            sid = process_id
+                                        # Use subject_id computed before dataset path normalization
+                                        sid = subject_id_for_results or process_id
                                         log(f"📤 Uploading training samples to S3: subject_id={sid} | Files: {len(collected_samples)}", "INFO")
                                         loop = asyncio.new_event_loop()
                                         asyncio.set_event_loop(loop)
