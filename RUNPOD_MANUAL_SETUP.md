@@ -48,7 +48,7 @@ Notes:
 - List files:
 { "input": { "type": "list_files" } }
 - Download by S3 key:
-{ "input": { "type": "download_by_key", "s3_key": "lora-dashboard/results/<process_id>/images/<file>" } }
+{ "input": { "type": "download_by_key", "s3_key": "lora-dashboard/results/<subject_id>/images/<file>" } }
 
 Tips:
 - For large downloads, use presigned URLs (the backend already returns them).

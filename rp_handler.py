@@ -740,7 +740,8 @@ def get_real_services():
                                 log(f"⚠️ Different S3 bucket specified: {bucket}", "WARN")
                                 s3_dataset_path = dataset_path
                         else:
-                            s3_dataset_path = f"lora-dashboard/datasets/{dataset_path}"
+                            # Build S3 dataset path using configured prefix and unified 'dataset/' folder
+                            s3_dataset_path = f"{self.prefix}/dataset/{dataset_path}"
 
                         local_dataset_path = f"/workspace/training_data/{process_id}"
                         os.makedirs(local_dataset_path, exist_ok=True)
@@ -1786,17 +1787,17 @@ def get_real_services():
                 log(f"❌ S3 dataset download failed: {e}", "ERROR")
                 raise
         
-        async def upload_results_to_s3(self, process_id: str, local_path: str, result_type: str):
+        async def upload_results_to_s3(self, subject_id: str, local_path: str, result_type: str):
             """Upload training/generation results to S3
-            Note: 'process_id' here may represent 'subject_id' in the new convention.
+            Note: 'subject_id' corresponds to the subject folder under results/.
             """
             if not self.s3_client:
                 log("❌ S3 client not available, skipping upload", "WARNING")
                 return
             
             try:
-                s3_base_path = f"{self.prefix}/results/{process_id}/{result_type}"
-                log(f"📤 Starting results upload to S3 | subject_or_process_id: {process_id} | type: {result_type} | source: {local_path}", "INFO")
+                s3_base_path = f"{self.prefix}/results/{subject_id}/{result_type}"
+                log(f"📤 Starting results upload to S3 | subject_id: {subject_id} | type: {result_type} | source: {local_path}", "INFO")
                 
                 if os.path.isfile(local_path):
                     # Single file
