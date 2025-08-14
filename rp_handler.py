@@ -1160,6 +1160,7 @@ def get_real_services():
             """Run generation in background thread with enhanced handling"""
             start_time = time.time()
             metrics = {"start_time": start_time}
+            subject_id_for_results = None
             
             try:
                 ProcessManager.update_process_status(process_id, "running")
@@ -1194,6 +1195,12 @@ def get_real_services():
                     # Fallbacks for older flat configs
                     if model_cfg is None and 'model' in (config_data or {}):
                         model_cfg = config_data.get('model') or {}
+
+                    # Derive subject_id before any in-place config normalization
+                    try:
+                        subject_id_for_results = self._derive_subject_id(config_data, process_id)
+                    except Exception:
+                        subject_id_for_results = None
 
                     # Enhanced LoRA path handling (supports nested configs)
                     lora_path = None
@@ -1426,7 +1433,7 @@ def get_real_services():
                             cfg_data_for_sid = yaml.safe_load(config)
                         except Exception:
                             cfg_data_for_sid = None
-                        sid = self._derive_subject_id(cfg_data_for_sid or {}, process_id)
+                        sid = subject_id_for_results or self._derive_subject_id(cfg_data_for_sid or {}, process_id)
                         log(f"📤 Uploading generation results to S3: subject_id={sid}", "INFO")
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
