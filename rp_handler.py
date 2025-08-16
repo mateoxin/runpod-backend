@@ -50,7 +50,7 @@ try:
     )
     from utils import (
         log, format_file_size, track_metric, get_metrics,
-        GPUManager, retry_with_backoff, execute_with_timeout,
+        GPUManager, retry_with_backoff, execute_with_timeout, execute_with_streaming,
         normalize_workspace_path, CircuitBreaker, batch_process,
         cleanup_old_files, get_memory_usage, validate_environment
     )
@@ -938,16 +938,11 @@ def get_real_services():
                 cmd = [sys.executable, ai_toolkit_path, config_path]
                 log(f"🎯 Training command: {' '.join(cmd)}", "INFO")
                 
-                # Use enhanced execution if available
+                # Use streaming execution for real-time visibility of training progress
                 if ENHANCED_IMPORTS:
                     try:
-                        # Run with timeout and retries
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        result = loop.run_until_complete(
-                            execute_with_timeout(cmd, timeout=TRAINING_TIMEOUT, env=env)
-                        )
-                        loop.close()
+                        log(f"🎯 Running training with streaming output for real-time progress monitoring", "INFO")
+                        result = execute_with_streaming(cmd, timeout=TRAINING_TIMEOUT, env=env)
                     except subprocess.TimeoutExpired:
                         raise Exception(f"Training timed out after {TRAINING_TIMEOUT} seconds")
                     except Exception as e:
@@ -956,11 +951,16 @@ def get_real_services():
                     # Fallback to simple subprocess
                     result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=7200)
                 
-                # Log training output for debugging
-                if result.stdout:
-                    log(f"📋 Training stdout: {result.stdout[:1000]}...", "INFO")
-                if result.stderr:
-                    log(f"❌ Training stderr: {result.stderr[:1000]}...", "ERROR")
+                # Training output already logged in real-time via streaming
+                # Final summary of training completion
+                if ENHANCED_IMPORTS:
+                    log(f"✅ Training process completed (real-time output was streamed above)", "INFO")
+                else:
+                    # Fallback logging for non-enhanced mode
+                    if result.stdout:
+                        log(f"📋 Training stdout: {result.stdout[:1000]}...", "INFO")
+                    if result.stderr:
+                        log(f"❌ Training stderr: {result.stderr[:1000]}...", "ERROR")
                 
                 if result.returncode == 0:
                     # Look for output files in correct locations
