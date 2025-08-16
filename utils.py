@@ -339,112 +339,162 @@ def execute_with_streaming(
 ) -> subprocess.CompletedProcess:
     """Execute command with real-time output streaming for training visibility"""
     
-    log(f"🚀 Starting command: {' '.join(cmd)}", "INFO")
+    log(f"🚀 Starting streaming command: {' '.join(cmd)}", "INFO")
     
     try:
-        # Start process with streaming stdout/stderr
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True,
-            env=env or os.environ.copy(),
-            cwd=cwd
-        )
-        
-        stdout_lines = []
-        stderr_lines = []
-        
-        def read_and_log_stdout():
-            """Read stdout and log each line in real-time"""
-            try:
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        line_clean = line.rstrip('\n\r')
-                        stdout_lines.append(line_clean)
-                        # Log training progress lines with special formatting
-                        if any(keyword in line_clean.lower() for keyword in ['step', 'loss', 'lr', 'epoch', 'loss:']):
-                            log(f"🔥 TRAINING: {line_clean}", "INFO")
-                        else:
-                            log(f"📋 OUTPUT: {line_clean}", "INFO")
-                    else:
-                        break
-            except Exception as e:
-                log(f"⚠️ Error reading stdout: {e}", "WARNING")
-            finally:
-                if process.stdout and not process.stdout.closed:
-                    process.stdout.close()
-        
-        def read_and_log_stderr():
-            """Read stderr and log each line in real-time"""
-            try:
-                for line in iter(process.stderr.readline, ''):
-                    if line:
-                        line_clean = line.rstrip('\n\r')
-                        stderr_lines.append(line_clean)
-                        # Log errors and warnings prominently
-                        if any(keyword in line_clean.lower() for keyword in ['error', 'exception', 'failed']):
-                            log(f"❌ ERROR: {line_clean}", "ERROR")
-                        elif any(keyword in line_clean.lower() for keyword in ['warning', 'warn']):
-                            log(f"⚠️ WARNING: {line_clean}", "WARNING")
-                        else:
-                            log(f"📟 STDERR: {line_clean}", "INFO")
-                    else:
-                        break
-            except Exception as e:
-                log(f"⚠️ Error reading stderr: {e}", "WARNING")
-            finally:
-                if process.stderr and not process.stderr.closed:
-                    process.stderr.close()
-        
-        # Start reading threads
-        import threading
-        stdout_thread = threading.Thread(target=read_and_log_stdout, daemon=True)
-        stderr_thread = threading.Thread(target=read_and_log_stderr, daemon=True)
-        
-        stdout_thread.start()
-        stderr_thread.start()
-        
-        # Wait for process completion with timeout
+        # Try streaming approach first
+        return _execute_with_streaming_internal(cmd, timeout, env, cwd)
+    except Exception as streaming_error:
+        log(f"⚠️ Streaming execution failed: {streaming_error}, falling back to standard mode", "WARNING")
+        # Fallback to standard execution with enhanced logging
+        return _execute_with_fallback(cmd, timeout, env, cwd)
+
+def _execute_with_streaming_internal(
+    cmd: List[str],
+    timeout: int,
+    env: Optional[Dict[str, str]],
+    cwd: Optional[str]
+) -> subprocess.CompletedProcess:
+    """Internal streaming execution with threading"""
+    
+    # Start process with streaming stdout/stderr
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Merge stderr to stdout for simpler handling
+        text=True,
+        bufsize=0,  # Unbuffered for real-time output
+        universal_newlines=True,
+        env=env or os.environ.copy(),
+        cwd=cwd
+    )
+    
+    output_lines = []
+    
+    def read_and_log_output():
+        """Read and log output in real-time"""
         try:
-            return_code = process.wait(timeout=timeout)
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                    
+                line_clean = line.rstrip('\n\r')
+                if line_clean:  # Skip empty lines
+                    output_lines.append(line_clean)
+                    
+                    # Enhanced pattern matching for training info
+                    line_lower = line_clean.lower()
+                    if any(keyword in line_lower for keyword in [
+                        'step', 'loss', 'lr', 'epoch', 'learning_rate', 
+                        'batch', 'iteration', 'training', 'gradient'
+                    ]):
+                        log(f"🔥 TRAINING: {line_clean}", "INFO")
+                    elif any(keyword in line_lower for keyword in [
+                        'error', 'exception', 'failed', 'traceback'
+                    ]):
+                        log(f"❌ ERROR: {line_clean}", "ERROR")
+                    elif any(keyword in line_lower for keyword in [
+                        'warning', 'warn'
+                    ]):
+                        log(f"⚠️ WARNING: {line_clean}", "WARNING")
+                    else:
+                        log(f"📋 OUTPUT: {line_clean}", "INFO")
+        except Exception as e:
+            log(f"⚠️ Error in output reading: {e}", "WARNING")
+        finally:
+            if process.stdout and not process.stdout.closed:
+                process.stdout.close()
+    
+    # Start reading thread
+    import threading
+    output_thread = threading.Thread(target=read_and_log_output, daemon=True)
+    output_thread.start()
+    
+    # Wait for process completion
+    try:
+        return_code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        log(f"⏱️ Process timed out after {timeout}s, terminating", "ERROR")
+        process.terminate()
+        try:
+            process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            log(f"⏱️ Training timed out after {timeout}s, terminating process", "ERROR")
-            process.terminate()
-            # Give it a few seconds to terminate gracefully
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                log("🔪 Force killing training process", "ERROR")
-                process.kill()
-                process.wait()
-            raise subprocess.TimeoutExpired(cmd, timeout)
-        
-        # Wait for threads to finish reading
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        
-        # Create result object compatible with subprocess.run
-        result = subprocess.CompletedProcess(
-            cmd, 
-            return_code, 
-            stdout='\n'.join(stdout_lines),
-            stderr='\n'.join(stderr_lines)
-        )
-        
-        if return_code == 0:
-            log(f"✅ Training completed successfully", "INFO")
-        else:
-            log(f"❌ Training failed with return code {return_code}", "ERROR")
-            raise subprocess.CalledProcessError(return_code, cmd, result.stdout, result.stderr)
-        
-        return result
-        
-    except Exception as e:
-        log(f"❌ Training execution failed: {e}", "ERROR")
-        raise
+            log("🔪 Force killing process", "ERROR")
+            process.kill()
+            process.wait()
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    
+    # Wait for output thread to finish
+    output_thread.join(timeout=5)
+    
+    # Create result
+    result = subprocess.CompletedProcess(
+        cmd, 
+        return_code, 
+        stdout='\n'.join(output_lines),
+        stderr=''  # We merged stderr to stdout
+    )
+    
+    if return_code != 0:
+        log(f"❌ Process failed with return code {return_code}", "ERROR")
+        raise subprocess.CalledProcessError(return_code, cmd, result.stdout, result.stderr)
+    
+    log(f"✅ Process completed successfully", "INFO")
+    return result
+
+def _execute_with_fallback(
+    cmd: List[str],
+    timeout: int,
+    env: Optional[Dict[str, str]],
+    cwd: Optional[str]
+) -> subprocess.CompletedProcess:
+    """Fallback execution with standard subprocess.run and enhanced logging"""
+    
+    log(f"🔄 Using fallback execution mode", "INFO")
+    
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env or os.environ.copy(),
+        cwd=cwd
+    )
+    
+    # Enhanced logging of captured output
+    if result.stdout:
+        log(f"📋 STDOUT CAPTURED:", "INFO")
+        for line in result.stdout.split('\n'):
+            if line.strip():
+                line_lower = line.lower()
+                if any(keyword in line_lower for keyword in [
+                    'step', 'loss', 'lr', 'epoch', 'learning_rate'
+                ]):
+                    log(f"🔥 TRAINING: {line}", "INFO")
+                else:
+                    log(f"📋 {line}", "INFO")
+    
+    if result.stderr:
+        log(f"📟 STDERR CAPTURED:", "INFO")
+        for line in result.stderr.split('\n'):
+            if line.strip():
+                line_lower = line.lower()
+                if any(keyword in line_lower for keyword in [
+                    'error', 'exception', 'failed'
+                ]):
+                    log(f"❌ ERROR: {line}", "ERROR")
+                elif any(keyword in line_lower for keyword in [
+                    'warning', 'warn'
+                ]):
+                    log(f"⚠️ WARNING: {line}", "WARNING")
+                else:
+                    log(f"📟 {line}", "INFO")
+    
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+    
+    return result
 
 # Path validation and normalization
 def normalize_workspace_path(path: str) -> str:
